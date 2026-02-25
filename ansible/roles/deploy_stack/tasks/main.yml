@@ -1,0 +1,97 @@
+- name: Create stack directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ stack_dir }}"
+    - "{{ stack_dir }}/traefik"
+    - "{{ stack_dir }}/traefik/dynamic"
+    - "{{ stack_dir }}/authelia"
+    - "{{ stack_dir }}/authelia/secrets"
+    - "{{ stack_dir }}/vikunja"
+    - "{{ stack_dir }}/postgres/init"
+
+- name: Ensure Authelia admin password hash is provided
+  ansible.builtin.assert:
+    that:
+      - authelia_admin_password_hash is defined
+      - authelia_admin_password_hash | length > 0
+      - authelia_admin_password_hash.startswith("$argon2id$")
+    fail_msg: >-
+      authelia_admin_password_hash is missing or invalid.
+      Set it in group_vars/vps.vault.yml using an Authelia argon2id hash.
+
+- name: Render docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ stack_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Render stack .env file
+  ansible.builtin.template:
+    src: stack.env.j2
+    dest: "{{ stack_dir }}/.env"
+    mode: "0600"
+
+- name: Render Traefik config
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ stack_dir }}/traefik/traefik.yml"
+    mode: "0644"
+
+- name: Render Traefik middlewares
+  ansible.builtin.template:
+    src: middlewares.yml.j2
+    dest: "{{ stack_dir }}/traefik/dynamic/middlewares.yml"
+    mode: "0644"
+
+- name: Render Postgres init SQL
+  ansible.builtin.template:
+    src: 01-create-dbs.sql.j2
+    dest: "{{ stack_dir }}/postgres/init/01-create-dbs.sql"
+    mode: "0644"
+
+- name: Render Authelia config
+  ansible.builtin.template:
+    src: authelia-configuration.yml.j2
+    dest: "{{ stack_dir }}/authelia/configuration.yml"
+    mode: "0644"
+
+- name: Render Authelia users database (example)
+  ansible.builtin.template:
+    src: authelia-users_database.yml.j2
+    dest: "{{ stack_dir }}/authelia/users_database.yml"
+    mode: "0644"
+
+- name: Render Vikunja config
+  ansible.builtin.template:
+    src: vikunja-config.yml.j2
+    dest: "{{ stack_dir }}/vikunja/config.yml"
+    mode: "0644"
+
+- name: Ensure Authelia OIDC private key exists
+  ansible.builtin.shell: |
+    set -e
+    if [ ! -f "{{ authelia_oidc_private_key_path }}" ]; then
+      openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "{{ authelia_oidc_private_key_path }}"
+      chmod 600 "{{ authelia_oidc_private_key_path }}"
+    fi
+  args:
+    executable: /bin/bash
+
+- name: Install systemd unit for stack
+  ansible.builtin.template:
+    src: stack.service.j2
+    dest: /etc/systemd/system/stack.service
+    mode: "0644"
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Start stack service
+  ansible.builtin.systemd:
+    name: stack
+    state: started
+    enabled: true

@@ -1,0 +1,35 @@
+# Managed by Ansible
+{% if bootstrap %}
+Port {{ bootstrap_ssh_port }}
+{% if (bootstrap_ssh_port | string) != (ssh_port | string) %}
+Port {{ ssh_port }}
+{% endif %}
+PermitRootLogin yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication yes
+{% else %}
+Port {{ ssh_port }}
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+{% endif %}
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM yes
+X11Forwarding no
+PermitEmptyPasswords no
+PermitUserEnvironment no
+ClientAliveInterval {{ ssh_client_alive_interval }}
+ClientAliveCountMax {{ ssh_client_alive_count_max }}
+MaxAuthTries {{ ssh_max_auth_tries }}
+MaxSessions {{ ssh_max_sessions }}
+LoginGraceTime {{ ssh_login_grace_time }}
+AllowAgentForwarding no
+AllowTcpForwarding no
+{% if ssh_allow_users | length > 0 %}
+{% if bootstrap %}
+AllowUsers {{ (ssh_allow_users + [bootstrap_ssh_user]) | unique | join(' ') }}
+{% else %}
+AllowUsers {{ ssh_allow_users | join(' ') }}
+{% endif %}
+{% endif %}

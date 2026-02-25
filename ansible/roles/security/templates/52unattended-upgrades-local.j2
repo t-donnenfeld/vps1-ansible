@@ -1,0 +1,16 @@
+Unattended-Upgrade::Origins-Pattern {
+  "origin=Ubuntu,codename=${distro_codename},label=Ubuntu";
+  "origin=Ubuntu,codename=${distro_codename},label=UbuntuESMApps";
+  "origin=Ubuntu,codename=${distro_codename},label=UbuntuESM";
+};
+
+Unattended-Upgrade::Package-Blacklist {
+};
+
+Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "{{ unattended_remove_unused_deps | lower }}";
+Unattended-Upgrade::Automatic-Reboot "{{ unattended_auto_reboot | lower }}";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ unattended_auto_reboot_time }}";
+Unattended-Upgrade::Mail "{{ unattended_mail_recipient }}";
+Unattended-Upgrade::MailOnlyOnError "{{ unattended_mail_only_on_error | lower }}";

@@ -1,0 +1,7 @@
+users:
+  {{ admin_user }}:
+    displayname: "{{ admin_user }}"
+    password: "{{ authelia_admin_password_hash }}"
+    email: "{{ email_admin }}"
+    groups:
+      - admins

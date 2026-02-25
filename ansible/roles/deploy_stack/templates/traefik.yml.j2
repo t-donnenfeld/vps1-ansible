@@ -1,0 +1,28 @@
+api:
+  dashboard: {{ 'true' if traefik_dashboard else 'false' }}
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    exposedByDefault: false
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: {{ email_admin }}
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web

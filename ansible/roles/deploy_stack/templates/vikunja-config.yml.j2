@@ -1,0 +1,11 @@
+auth:
+  openid:
+    enabled: true
+    providers:
+      authelia:
+        name: "Authelia"
+        authurl: "https://{{ subdomain_auth }}.{{ domain }}/api/oidc/authorization"
+        logouturl: "https://{{ subdomain_auth }}.{{ domain }}/logout"
+        clientid: "{{ oidc_client_id }}"
+        clientsecret: "${OIDC_CLIENT_SECRET}"
+        scope: "openid profile email"

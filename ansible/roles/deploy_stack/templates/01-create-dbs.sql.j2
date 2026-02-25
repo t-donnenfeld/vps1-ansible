@@ -1,0 +1,5 @@
+CREATE USER {{ authelia_db_user }} WITH PASSWORD '{{ authelia_db_password }}';
+CREATE DATABASE {{ authelia_db_name }} OWNER {{ authelia_db_user }};
+
+CREATE USER {{ vikunja_db_user }} WITH PASSWORD '{{ vikunja_db_password }}';
+CREATE DATABASE {{ vikunja_db_name }} OWNER {{ vikunja_db_user }};

@@ -1,0 +1,19 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local secrets
+authelia/secrets/*
+!authelia/secrets/.gitkeep
+
+# Generic local artifacts
+*.log
+*.tmp
+
+# Ansible local artifacts
+*.retry
+.ansible/
+ansible/.ansible/
+vault-pass.txt
+*.vault-pass

@@ -1,0 +1,17 @@
+- name: Provision VPS and deploy stack
+  hosts: vps
+  become: true
+  gather_facts: false
+  vars_files:
+    - group_vars/vps.yml
+    - group_vars/vps.vault.yml
+  vars:
+    ansible_user: "{{ bootstrap_ssh_user if (bootstrap | bool) else admin_user }}"
+    ansible_port: "{{ bootstrap_ssh_port if (bootstrap | bool) else ssh_port }}"
+    ansible_password: "{{ vps_initial_ssh_password if (bootstrap | bool) else omit }}"
+    ansible_ssh_private_key_file: "{{ omit if (bootstrap | bool) else vps_ssh_private_key_file }}"
+  roles:
+    - common
+    - security
+    - docker
+    - deploy_stack

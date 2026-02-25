@@ -1,0 +1,67 @@
+# System
+ssh_port: 55022
+admin_user: theo
+admin_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKzg2IE4TSt6qRRzJhnrAbW945OslJPAsYfFYOv0sI75 theo"
+sudo_nopasswd: true
+apt_cache_valid_time: 3600
+apt_dist_upgrade: "{{ bootstrap | bool }}"
+
+bootstrap: true
+bootstrap_ssh_user: root
+bootstrap_ssh_port: 22
+vps_ssh_private_key_file: "~/.ssh/id_ed25519"
+
+ssh_allow_users:
+  - "{{ admin_user }}"
+ssh_client_alive_interval: 300
+ssh_client_alive_count_max: 2
+ssh_max_auth_tries: 3
+ssh_max_sessions: 5
+ssh_login_grace_time: 30
+restart_ssh_service_immediately: "{{ not (bootstrap | bool) }}"
+
+ufw_logging_level: low
+
+fail2ban_bantime: 1h
+fail2ban_findtime: 10m
+fail2ban_maxretry: 5
+fail2ban_sender: fail2ban@{{ domain }}
+
+unattended_update_package_lists: 1
+unattended_download_upgradeable_packages: 1
+unattended_autoclean_interval: 7
+unattended_upgrade_enabled: 1
+unattended_remove_unused_deps: true
+unattended_auto_reboot: false
+unattended_auto_reboot_time: "03:30"
+unattended_mail_recipient: "{{ email_admin }}"
+unattended_mail_only_on_error: true
+
+# Domain / routing
+domain: les12.fr
+subdomain_auth: auth
+subdomain_tasks: tasks
+email_admin: theotime.donnenfeld@les12.fr
+
+# Paths
+stack_dir: /opt/stack
+
+# Postgres
+authelia_db_name: authelia
+authelia_db_user: authelia
+
+vikunja_db_name: vikunja
+vikunja_db_user: vikunja
+
+# Authelia OIDC
+oidc_client_id: vikunja
+
+authelia_oidc_private_key_path: "{{ stack_dir }}/authelia/secrets/oidc_private_key.pem"
+
+# Mail
+brevo_smtp_host: smtp-relay.brevo.com
+brevo_smtp_port: 587
+mail_from: "noreply@les12.fr"
+
+# Enable Traefik dashboard? (recommended: false unless protected)
+traefik_dashboard: false

@@ -1,0 +1,10 @@
+[Socket]
+ListenStream=
+{% if bootstrap | bool %}
+ListenStream={{ bootstrap_ssh_port }}
+{% if (bootstrap_ssh_port | string) != (ssh_port | string) %}
+ListenStream={{ ssh_port }}
+{% endif %}
+{% else %}
+ListenStream={{ ssh_port }}
+{% endif %}

@@ -1,0 +1,47 @@
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: "{{ apt_cache_valid_time }}"
+
+- name: Upgrade system packages (bootstrap/maintenance)
+  ansible.builtin.apt:
+    upgrade: dist
+  when: apt_dist_upgrade | bool
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - unzip
+      - git
+      - ufw
+      - fail2ban
+      - python3-pip
+    state: present
+
+- name: Create admin user
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    groups: sudo
+    shell: /bin/bash
+    create_home: true
+
+- name: Set authorized key for admin user
+  ansible.builtin.authorized_key:
+    user: "{{ admin_user }}"
+    key: "{{ admin_pubkey }}"
+
+- name: Ensure sudo without password for admin user (optional)
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ admin_user }}"
+    content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+  when: sudo_nopasswd | default(false)
+
+- name: Remove sudo without password when disabled
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ admin_user }}"
+    state: absent
+  when: not (sudo_nopasswd | default(false))

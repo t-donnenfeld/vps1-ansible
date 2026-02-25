@@ -1,0 +1,15 @@
+[DEFAULT]
+bantime = {{ fail2ban_bantime }}
+findtime = {{ fail2ban_findtime }}
+maxretry = {{ fail2ban_maxretry }}
+backend = systemd
+banaction = ufw
+destemail = {{ email_admin }}
+sender = {{ fail2ban_sender }}
+mta = sendmail
+action = %(action_mwl)s
+
+[sshd]
+enabled = true
+port = {{ ssh_port }}
+logpath = %(sshd_log)s

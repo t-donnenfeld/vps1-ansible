@@ -1,0 +1,105 @@
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --configFile=/etc/traefik/traefik.yml
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - {{ stack_dir }}/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - {{ stack_dir }}/traefik/dynamic:/etc/traefik/dynamic:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+    networks:
+      - web
+
+  postgres:
+    image: postgres:16
+    env_file:
+      - .env
+    environment:
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_USER: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - {{ stack_dir }}/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - internal
+
+  authelia:
+    image: authelia/authelia:latest
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    volumes:
+      - {{ stack_dir }}/authelia/configuration.yml:/config/configuration.yml:ro
+      - {{ stack_dir }}/authelia/users_database.yml:/config/users_database.yml:ro
+      - {{ stack_dir }}/authelia/secrets:/secrets:ro
+    environment:
+      AUTHELIA_JWT_SECRET: "${AUTHELIA_JWT_SECRET}"
+      AUTHELIA_SESSION_SECRET: "${AUTHELIA_SESSION_SECRET}"
+      AUTHELIA_STORAGE_ENCRYPTION_KEY: "${AUTHELIA_STORAGE_ENCRYPTION_KEY}"
+      AUTHELIA_DB_PASSWORD: "${AUTHELIA_DB_PASSWORD}"
+      AUTHELIA_OIDC_CLIENT_SECRET: "${AUTHELIA_OIDC_CLIENT_SECRET}"
+      BREVO_SMTP_HOST: "${BREVO_SMTP_HOST}"
+      BREVO_SMTP_PORT: "${BREVO_SMTP_PORT}"
+      BREVO_SMTP_USER: "${BREVO_SMTP_USER}"
+      BREVO_SMTP_PASS: "${BREVO_SMTP_PASS}"
+      MAIL_FROM: "${MAIL_FROM}"
+    networks:
+      - web
+      - internal
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.authelia.rule=Host(`{{ subdomain_auth }}.{{ domain }}`)
+      - traefik.http.routers.authelia.entrypoints=websecure
+      - traefik.http.routers.authelia.tls.certresolver=letsencrypt
+      - traefik.http.services.authelia.loadbalancer.server.port=9091
+
+  vikunja:
+    image: vikunja/vikunja:latest
+    depends_on:
+      - postgres
+    env_file:
+      - .env
+    environment:
+      VIKUNJA_DATABASE_TYPE: postgres
+      VIKUNJA_DATABASE_HOST: postgres
+      VIKUNJA_DATABASE_USER: "{{ vikunja_db_user }}"
+      VIKUNJA_DATABASE_PASSWORD: "${VIKUNJA_DB_PASSWORD}"
+      VIKUNJA_DATABASE_DATABASE: "{{ vikunja_db_name }}"
+      VIKUNJA_SERVICE_PUBLICURL: "https://{{ subdomain_tasks }}.{{ domain }}/"
+      # SMTP via Brevo
+      VIKUNJA_MAILER_ENABLED: "true"
+      VIKUNJA_MAILER_HOST: "${BREVO_SMTP_HOST}"
+      VIKUNJA_MAILER_PORT: "${BREVO_SMTP_PORT}"
+      VIKUNJA_MAILER_USERNAME: "${BREVO_SMTP_USER}"
+      VIKUNJA_MAILER_PASSWORD: "${BREVO_SMTP_PASS}"
+      VIKUNJA_MAILER_FROMEMAIL: "${MAIL_FROM}"
+      OIDC_CLIENT_SECRET: "${AUTHELIA_OIDC_CLIENT_SECRET}"
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTSECRET: "${AUTHELIA_OIDC_CLIENT_SECRET}"
+    volumes:
+      - {{ stack_dir }}/vikunja/config.yml:/app/vikunja/config.yml:ro
+      - vikunja_files:/app/vikunja/files
+    networks:
+      - web
+      - internal
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.vikunja.rule=Host(`{{ subdomain_tasks }}.{{ domain }}`)
+      - traefik.http.routers.vikunja.entrypoints=websecure
+      - traefik.http.routers.vikunja.tls.certresolver=letsencrypt
+      - traefik.http.services.vikunja.loadbalancer.server.port=3456
+      # Optional: protect with Authelia at proxy level too:
+      # - traefik.http.routers.vikunja.middlewares=authelia@file
+
+volumes:
+  traefik_letsencrypt:
+  pgdata:
+  vikunja_files:
+
+networks:
+  web:
+  internal:
