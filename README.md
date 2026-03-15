@@ -85,3 +85,36 @@ ansible-vault encrypt ansible/group_vars/vps.vault.yml
 ansible-vault edit ansible/group_vars/vps.vault.yml
 ```
 
+## Selective Task Runs
+
+You can choose which role imports to execute by using Ansible tags.
+We’ve tagged the main tasks as follows:
+
+- `common`: common setup tasks (bootstrap only)
+- `security_bootstrap`: security bootstrap tasks
+- `docker`: Docker installation tasks (bootstrap only)
+- `deploy_stack`: application stack deployment tasks
+- `security_post_bootstrap`: security hardening tasks (post-bootstrap)
+
+To run only specific roles:
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/site.yml \
+  --tags docker,deploy_stack --ask-vault-pass -e bootstrap=true
+```
+
+For an interactive prompt, add this at the top of `ansible/site.yml`:
+
+```yaml
+vars_prompt:
+  - name: selected_tags
+    prompt: "Enter comma-separated tags to run (e.g. common,docker)"
+    private: no
+```
+
+Then run:
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/site.yml \
+  --tags "{{ selected_tags }}" --ask-vault-pass
+```

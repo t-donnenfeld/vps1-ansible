@@ -13,22 +13,27 @@
   tasks:
     - import_role:
         name: common
+      tags: common
       when: bootstrap | bool
 
     - import_role:
         name: security
         tasks_from: bootstrap
+      tags: security_bootstrap
       when: bootstrap | bool
 
     - import_role:
         name: docker
+      tags: docker
       when: bootstrap | bool
 
     - import_role:
         name: deploy_stack
+      tags: deploy_stack
       when: bootstrap | bool
 
     - import_role:
         name: security
         tasks_from: post_bootstrap
+      tags: security_post_bootstrap
       when: not bootstrap | bool
