@@ -1,10 +1,10 @@
 # System
-ssh_port: 55022
+ssh_port: 22
 admin_user: theo
 admin_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKzg2IE4TSt6qRRzJhnrAbW945OslJPAsYfFYOv0sI75 theo"
 sudo_nopasswd: true
 apt_cache_valid_time: 3600
-apt_dist_upgrade: "{{ bootstrap | bool }}"
+apt_dist_upgrade: true
 
 bootstrap: false
 bootstrap_ssh_user: root
@@ -41,6 +41,7 @@ unattended_mail_only_on_error: true
 domain: les12.fr
 subdomain_auth: auth
 subdomain_tasks: tasks
+subdomain_dashboard: traefik
 email_admin: theotime.donnenfeld@les12.fr
 
 # Paths
@@ -55,6 +56,10 @@ vikunja_db_user: vikunja
 
 # Authelia OIDC
 oidc_client_id: vikunja
+authelia_image: authelia/authelia:latest
+authelia_oidc_jwks_key_id: "authelia-oidc-key"
+authelia_oidc_jwks_algorithm: RS256
+authelia_oidc_client_secret_hash_path: "{{ stack_dir }}/authelia/secrets/oidc_client_secret.hash"
 
 authelia_oidc_private_key_path: "{{ stack_dir }}/authelia/secrets/oidc_private_key.pem"
 
@@ -64,4 +69,4 @@ brevo_smtp_port: 587
 mail_from: "noreply@les12.fr"
 
 # Enable Traefik dashboard? (recommended: false unless protected)
-traefik_dashboard: false
+traefik_dashboard: true

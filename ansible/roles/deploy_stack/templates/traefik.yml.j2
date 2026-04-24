@@ -14,10 +14,15 @@ entryPoints:
 
 providers:
   docker:
+    endpoint: "unix:///var/run/docker.sock"
+    watch: true
     exposedByDefault: false
   file:
     directory: /etc/traefik/dynamic
     watch: true
+
+log:
+  level: INFO
 
 certificatesResolvers:
   letsencrypt:

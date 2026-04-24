@@ -13,6 +13,17 @@
       This can lock out the play after sshd hardening is applied.
       Set restart_ssh_service_immediately=false for first run, then switch inventory to admin user.
 
+- name: Set system hostname
+  ansible.builtin.hostname:
+    name: palma
+
+- name: Ensure /etc/hosts maps hostname
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s+'
+    line: '127.0.1.1 palma'
+    state: present
+
 - name: Deploy SSH hardening config
   ansible.builtin.template:
     src: sshd-hardening.conf.j2

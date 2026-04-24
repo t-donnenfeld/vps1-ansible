@@ -10,30 +10,43 @@
     ansible_port: "{{ bootstrap_ssh_port if (bootstrap | bool) else ssh_port }}"
     ansible_password: "{{ vps_initial_ssh_password if (bootstrap | bool) else omit }}"
     ansible_ssh_private_key_file: "{{ omit if (bootstrap | bool) else vps_ssh_private_key_file }}"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
   tasks:
     - import_role:
         name: common
+        tasks_from: bootstrap
       tags: common
       when: bootstrap | bool
 
+    # - import_role:
+    #     name: security
+    #     tasks_from: ssh_port_only
+    #   tags: security_bootstrap
+    #   when: bootstrap | bool
+
     - import_role:
-        name: security
-        tasks_from: bootstrap
-      tags: security_bootstrap
-      when: bootstrap | bool
+        name: common
+      tags: common
+      when: not bootstrap | bool
+
+    # - import_role:
+    #     name: security
+    #     tasks_from: bootstrap
+    #   tags: security_bootstrap
+    #   when: not bootstrap | bool
 
     - import_role:
         name: docker
       tags: docker
-      when: bootstrap | bool
+      when: not bootstrap | bool
 
     - import_role:
         name: deploy_stack
       tags: deploy_stack
-      when: bootstrap | bool
-
-    - import_role:
-        name: security
-        tasks_from: post_bootstrap
-      tags: security_post_bootstrap
       when: not bootstrap | bool
+
+    # - import_role:
+    #     name: security
+    #     tasks_from: post_bootstrap
+    #   tags: security_post_bootstrap
+    #   when: not bootstrap | bool

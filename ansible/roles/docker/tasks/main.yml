@@ -2,6 +2,9 @@
   ansible.builtin.apt:
     name:
       - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
       - software-properties-common
     state: present
 

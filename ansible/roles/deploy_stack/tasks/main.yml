@@ -12,6 +12,80 @@
     - "{{ stack_dir }}/vikunja"
     - "{{ stack_dir }}/postgres/init"
 
+- name: Create Vikunja files directory
+  ansible.builtin.file:
+    path: "{{ stack_dir }}/vikunja/files"
+    state: directory
+    mode: "0775"
+
+- name: Ensure Authelia OIDC private key exists
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ ! -f "{{ authelia_oidc_private_key_path }}" ]; then
+      openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "{{ authelia_oidc_private_key_path }}"
+      chmod 600 "{{ authelia_oidc_private_key_path }}"
+    fi
+  args:
+    executable: /bin/bash
+
+- name: Check for cached OIDC client secret hash
+  ansible.builtin.stat:
+    path: "{{ authelia_oidc_client_secret_hash_path }}"
+  register: oidc_client_secret_hash_stat
+
+- name: Generate hashed OIDC client secret
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - "{{ authelia_image }}"
+      - authelia
+      - crypto
+      - hash
+      - generate
+      - pbkdf2
+      - --password
+      - "{{ oidc_client_secret }}"
+      - --variant
+      - sha512
+      - --iterations
+      - "310000"
+      - --no-confirm
+  register: oidc_client_secret_hash_cmd
+  when: not oidc_client_secret_hash_stat.stat.exists
+  no_log: true
+
+- name: Persist hashed OIDC client secret
+  ansible.builtin.copy:
+    dest: "{{ authelia_oidc_client_secret_hash_path }}"
+    content: "{{ oidc_client_secret_hash_cmd.stdout | regex_replace('^Digest:\\s*', '') | trim }}\n"
+    mode: "0600"
+  when: not oidc_client_secret_hash_stat.stat.exists
+  no_log: true
+
+- name: Load hashed OIDC client secret
+  ansible.builtin.slurp:
+    path: "{{ authelia_oidc_client_secret_hash_path }}"
+  register: oidc_client_secret_hash_slurp
+  no_log: true
+
+- name: Set hashed OIDC client secret fact
+  ansible.builtin.set_fact:
+    oidc_client_secret_hash: "{{ oidc_client_secret_hash_slurp.content | b64decode | trim }}"
+  no_log: true
+
+- name: Load Authelia OIDC private key for JWKS
+  ansible.builtin.slurp:
+    path: "{{ authelia_oidc_private_key_path }}"
+  register: authelia_oidc_private_key_slurp
+  no_log: true
+
+- name: Set Authelia OIDC private key fact
+  ansible.builtin.set_fact:
+    authelia_oidc_private_key_pem: "{{ authelia_oidc_private_key_slurp.content | b64decode }}"
+  no_log: true
+
 - name: Ensure Authelia admin password hash is provided
   ansible.builtin.assert:
     that:
@@ -58,6 +132,24 @@
     dest: "{{ stack_dir }}/authelia/configuration.yml"
     mode: "0644"
 
+- name: Validate Authelia configuration
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --volume
+      - "{{ stack_dir }}/authelia:/config:ro"
+      - "{{ authelia_image }}"
+      - authelia
+      - config
+      - validate
+      - --config
+      - /config/configuration.yml
+  register: authelia_config_validation
+  changed_when: false
+  failed_when: authelia_config_validation.rc != 0
+
 - name: Render Authelia users database (example)
   ansible.builtin.template:
     src: authelia-users_database.yml.j2
@@ -69,16 +161,6 @@
     src: vikunja-config.yml.j2
     dest: "{{ stack_dir }}/vikunja/config.yml"
     mode: "0644"
-
-- name: Ensure Authelia OIDC private key exists
-  ansible.builtin.shell: |
-    set -e
-    if [ ! -f "{{ authelia_oidc_private_key_path }}" ]; then
-      openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "{{ authelia_oidc_private_key_path }}"
-      chmod 600 "{{ authelia_oidc_private_key_path }}"
-    fi
-  args:
-    executable: /bin/bash
 
 - name: Install systemd unit for stack
   ansible.builtin.template:

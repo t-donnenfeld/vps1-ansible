@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.6.14
     command:
       - --configFile=/etc/traefik/traefik.yml
     ports:
@@ -13,6 +13,13 @@ services:
       - traefik_letsencrypt:/letsencrypt
     networks:
       - web
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dashboard.rule=Host(`{{ subdomain_dashboard }}.{{ domain }}`)
+      - traefik.http.routers.dashboard.entrypoints=websecure
+      - traefik.http.routers.dashboard.tls.certresolver=letsencrypt
+      - traefik.http.routers.dashboard.service=api@internal
+      - traefik.http.routers.dashboard.middlewares=authelia@file
 
   postgres:
     image: postgres:16
@@ -28,31 +35,19 @@ services:
       - internal
 
   authelia:
-    image: authelia/authelia:latest
+    image: "{{ authelia_image }}"
     depends_on:
       - postgres
-    env_file:
-      - .env
     volumes:
-      - {{ stack_dir }}/authelia/configuration.yml:/config/configuration.yml:ro
-      - {{ stack_dir }}/authelia/users_database.yml:/config/users_database.yml:ro
+      - {{ stack_dir }}/authelia/configuration.yml:/config/configuration.yml
+      - {{ stack_dir }}/authelia/users_database.yml:/config/users_database.yml
       - {{ stack_dir }}/authelia/secrets:/secrets:ro
-    environment:
-      AUTHELIA_JWT_SECRET: "${AUTHELIA_JWT_SECRET}"
-      AUTHELIA_SESSION_SECRET: "${AUTHELIA_SESSION_SECRET}"
-      AUTHELIA_STORAGE_ENCRYPTION_KEY: "${AUTHELIA_STORAGE_ENCRYPTION_KEY}"
-      AUTHELIA_DB_PASSWORD: "${AUTHELIA_DB_PASSWORD}"
-      AUTHELIA_OIDC_CLIENT_SECRET: "${AUTHELIA_OIDC_CLIENT_SECRET}"
-      BREVO_SMTP_HOST: "${BREVO_SMTP_HOST}"
-      BREVO_SMTP_PORT: "${BREVO_SMTP_PORT}"
-      BREVO_SMTP_USER: "${BREVO_SMTP_USER}"
-      BREVO_SMTP_PASS: "${BREVO_SMTP_PASS}"
-      MAIL_FROM: "${MAIL_FROM}"
     networks:
       - web
       - internal
     labels:
       - traefik.enable=true
+      - traefik.docker.network=stack_web
       - traefik.http.routers.authelia.rule=Host(`{{ subdomain_auth }}.{{ domain }}`)
       - traefik.http.routers.authelia.entrypoints=websecure
       - traefik.http.routers.authelia.tls.certresolver=letsencrypt
@@ -78,16 +73,17 @@ services:
       VIKUNJA_MAILER_USERNAME: "${BREVO_SMTP_USER}"
       VIKUNJA_MAILER_PASSWORD: "${BREVO_SMTP_PASS}"
       VIKUNJA_MAILER_FROMEMAIL: "${MAIL_FROM}"
-      OIDC_CLIENT_SECRET: "${AUTHELIA_OIDC_CLIENT_SECRET}"
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTSECRET: "${AUTHELIA_OIDC_CLIENT_SECRET}"
+      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET}"
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTSECRET: "${OIDC_CLIENT_SECRET}"
     volumes:
       - {{ stack_dir }}/vikunja/config.yml:/app/vikunja/config.yml:ro
-      - vikunja_files:/app/vikunja/files
+      - {{ stack_dir }}/vikunja/files:/app/vikunja/files
     networks:
       - web
       - internal
     labels:
       - traefik.enable=true
+      - traefik.docker.network=stack_web
       - traefik.http.routers.vikunja.rule=Host(`{{ subdomain_tasks }}.{{ domain }}`)
       - traefik.http.routers.vikunja.entrypoints=websecure
       - traefik.http.routers.vikunja.tls.certresolver=letsencrypt
@@ -98,7 +94,7 @@ services:
 volumes:
   traefik_letsencrypt:
   pgdata:
-  vikunja_files:
+  # Named vikunja_files removed (using host bind mount instead)
 
 networks:
   web:

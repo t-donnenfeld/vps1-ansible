@@ -1,0 +1,2 @@
+ansible-playbook -i ansible/inventory.ini ansible/site.yml --ask-vault-pass -e bootstrap=true
+

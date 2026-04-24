@@ -15,36 +15,51 @@ access_control:
   rules:
     - domain: "{{ subdomain_auth }}.{{ domain }}"
       policy: bypass
+    - domain: "{{ subdomain_dashboard }}.{{ domain }}"
+      policy: one_factor
     - domain: "{{ subdomain_tasks }}.{{ domain }}"
       policy: one_factor
 
 session:
+  secret: "{{ authelia_session_secret }}"
   cookies:
     - domain: "{{ domain }}"
       authelia_url: "https://{{ subdomain_auth }}.{{ domain }}"
       name: authelia_session
 
 storage:
+  encryption_key: "{{ authelia_storage_encryption_key }}"
   postgres:
     address: tcp://postgres:5432
     database: {{ authelia_db_name }}
     username: {{ authelia_db_user }}
-    password: "${AUTHELIA_DB_PASSWORD}"
+    password: "{{ authelia_db_password }}"
 
 notifier:
+  disable_startup_check: true
   smtp:
-    address: "smtp://${BREVO_SMTP_HOST}:${BREVO_SMTP_PORT}"
-    username: "${BREVO_SMTP_USER}"
-    password: "${BREVO_SMTP_PASS}"
-    sender: "${MAIL_FROM}"
+    address: "smtp://{{ brevo_smtp_host }}:{{ brevo_smtp_port }}"
+    username: "{{ brevo_smtp_user }}"
+    password: "{{ brevo_smtp_pass }}"
+    sender: "{{ mail_from }}"
+
+identity_validation:
+  reset_password:
+    jwt_secret: "{{ authelia_reset_password_jwt_secret }}"
 
 identity_providers:
   oidc:
-    issuer_private_key_file: /secrets/{{ authelia_oidc_private_key_path | basename }}
+    hmac_secret: "{{ authelia_jwt_secret }}"
+    jwks:
+      - key_id: "{{ authelia_oidc_jwks_key_id }}"
+        algorithm: "{{ authelia_oidc_jwks_algorithm }}"
+        use: sig
+        key: |
+{{ authelia_oidc_private_key_pem | indent(10, true) }}
     clients:
-      - id: "{{ oidc_client_id }}"
-        description: "Vikunja"
-        secret: "${AUTHELIA_OIDC_CLIENT_SECRET}"
+      - client_id: "{{ oidc_client_id }}"
+        client_name: "Vikunja"
+        client_secret: "{{ oidc_client_secret_hash }}"
         public: false
         authorization_policy: one_factor
         redirect_uris:
@@ -53,3 +68,4 @@ identity_providers:
           - openid
           - profile
           - email
+
