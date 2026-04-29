@@ -1,15 +1,10 @@
-# System
-ssh_port: 22
+ssh_port: 55022
 admin_user: theo
 admin_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKzg2IE4TSt6qRRzJhnrAbW945OslJPAsYfFYOv0sI75 theo"
 sudo_nopasswd: true
+vps_ssh_private_key_file: "~/.ssh/id_ed25519"
 apt_cache_valid_time: 3600
 apt_dist_upgrade: true
-
-bootstrap: false
-bootstrap_ssh_user: root
-bootstrap_ssh_port: 22
-vps_ssh_private_key_file: "~/.ssh/id_ed25519"
 
 ssh_allow_users:
   - "{{ admin_user }}"
@@ -18,7 +13,6 @@ ssh_client_alive_count_max: 2
 ssh_max_auth_tries: 3
 ssh_max_sessions: 5
 ssh_login_grace_time: 30
-restart_ssh_service_immediately: "{{ not (bootstrap | bool) }}"
 
 ufw_logging_level: low
 

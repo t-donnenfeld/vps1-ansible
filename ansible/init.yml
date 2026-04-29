@@ -1,0 +1,125 @@
+- name: Bootstrap fresh VPS (run once)
+  hosts: vps
+  become: true
+  gather_facts: false
+  vars_files:
+    - group_vars/vps.yml
+    - group_vars/vps.vault.yml
+  vars:
+    ansible_user: root
+    ansible_port: 22
+    ansible_password: "{{ vps_initial_ssh_password }}"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+  tasks:
+    - name: Create admin user
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        groups: sudo
+        shell: /bin/bash
+        create_home: true
+
+    - name: Set authorized key for admin user
+      ansible.builtin.authorized_key:
+        user: "{{ admin_user }}"
+        key: "{{ admin_pubkey }}"
+
+    - name: Ensure sudo without password for admin user
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ admin_user }}"
+        content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        mode: "0440"
+      when: sudo_nopasswd | default(false)
+
+    - name: Install required packages
+      ansible.builtin.apt:
+        update_cache: true
+        name:
+          - openssh-server
+          - ufw
+          - fail2ban
+        state: present
+
+    - name: Ensure OpenSSH drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        mode: "0755"
+
+    - name: Deploy hardened SSH config
+      ansible.builtin.template:
+        src: roles/security/templates/sshd-hardening.conf.j2
+        dest: /etc/ssh/sshd_config.d/99-hardening.conf
+        mode: "0644"
+
+    - name: Validate SSH configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Detect ssh.socket unit
+      ansible.builtin.command: systemctl list-unit-files ssh.socket --no-legend
+      register: ssh_socket_unit
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure SSH socket drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/ssh.socket.d
+        state: directory
+        mode: "0755"
+      when: "'ssh.socket' in ssh_socket_unit.stdout"
+
+    - name: Configure SSH socket listening port
+      ansible.builtin.template:
+        src: roles/security/templates/ssh-socket-listen.conf.j2
+        dest: /etc/systemd/system/ssh.socket.d/10-listen-ports.conf
+        mode: "0644"
+      when: "'ssh.socket' in ssh_socket_unit.stdout"
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: "'ssh.socket' in ssh_socket_unit.stdout"
+
+    - name: Allow SSH on new port via UFW before changing
+      community.general.ufw:
+        rule: limit
+        port: "{{ ssh_port }}"
+        proto: tcp
+
+    - name: Allow SSH on port 22 during transition
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+
+    - name: Restart SSH socket to activate new port
+      ansible.builtin.systemd:
+        name: ssh.socket
+        state: restarted
+      when: "'ssh.socket' in ssh_socket_unit.stdout"
+
+    - name: Restart SSH service to activate new port
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+      when: "'ssh.socket' not in ssh_socket_unit.stdout"
+
+    - name: Wait for SSH on new port
+      ansible.builtin.wait_for:
+        port: "{{ ssh_port }}"
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        delay: 5
+        timeout: 60
+      become: false
+      connection: local
+
+    - name: Remove port 22 UFW rule
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        delete: true

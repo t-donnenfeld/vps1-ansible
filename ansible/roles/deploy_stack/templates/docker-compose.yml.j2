@@ -38,6 +38,11 @@ services:
     image: "{{ authelia_image }}"
     depends_on:
       - postgres
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9091/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     volumes:
       - {{ stack_dir }}/authelia/configuration.yml:/config/configuration.yml
       - {{ stack_dir }}/authelia/users_database.yml:/config/users_database.yml
@@ -56,7 +61,10 @@ services:
   vikunja:
     image: vikunja/vikunja:latest
     depends_on:
-      - postgres
+      postgres:
+        condition: service_started
+      authelia:
+        condition: service_healthy
     env_file:
       - .env
     environment:
