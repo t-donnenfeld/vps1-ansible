@@ -118,7 +118,7 @@ services:
       - traefik.http.routers.navidrome.entrypoints=websecure
       - traefik.http.routers.navidrome.tls.certresolver=letsencrypt
       - traefik.http.services.navidrome.loadbalancer.server.port=4533
-      - traefik.http.routers.navidrome.middlewares=drop-untrusted-auth-headers@file,authelia@file
+      - traefik.http.routers.navidrome.middlewares=authelia@file
 
 volumes:
   traefik_letsencrypt:
