@@ -10,13 +10,66 @@
     - "{{ stack_dir }}/authelia"
     - "{{ stack_dir }}/authelia/secrets"
     - "{{ stack_dir }}/vikunja"
+    - "{{ stack_dir }}/vikunja/files"
+    - "{{ stack_dir }}/navidrome"
     - "{{ stack_dir }}/postgres/init"
+    - "{{ stack_dir }}/loki"
+    - "{{ stack_dir }}/promtail"
+    - "{{ stack_dir }}/grafana"
+    - "{{ stack_dir }}/grafana/provisioning/datasources"
+    - "{{ stack_dir }}/grafana/provisioning/dashboards"
+    - "{{ stack_dir }}/grafana/dashboards"
+    - "{{ stack_dir }}/grafana/provisioning/contact-points"
+    - "{{ stack_dir }}/grafana/secrets"
+    - "{{ stack_dir }}/prometheus"
+    - "{{ stack_dir }}/prometheus/rules"
+    - "{{ stack_dir }}/syncthing"
+    - "{{ stack_dir }}/syncthing/config"
+    - "{{ stack_dir }}/syncthing/data"
+    - "{{ stack_dir }}/openclaw"
+    - "{{ stack_dir }}/openclaw/config"
+    - "{{ stack_dir }}/openclaw/config/agents/main/agent"
+    - "{{ stack_dir }}/signal"
 
-- name: Create Vikunja files directory
+- name: Create shared obsidian vaults directory
   ansible.builtin.file:
-    path: "{{ stack_dir }}/vikunja/files"
+    path: "{{ obsidian_vaults_dir }}"
     state: directory
     mode: "0775"
+    owner: "1000"
+    group: "1000"
+
+- name: Check if Syncthing API key is already persisted
+  ansible.builtin.stat:
+    path: "{{ stack_dir }}/syncthing/config/syncthing-api-key.txt"
+  register: syncthing_api_key_file
+
+- name: Generate Syncthing API key (alphanumeric only for XML safety)
+  ansible.builtin.set_fact:
+    syncthing_api_key: "{{ lookup('community.general.random_string', length=40, upper=true, lower=true, digits=true, special=false) }}"
+  when: not syncthing_api_key_file.stat.exists
+  no_log: true
+
+- name: Load persisted Syncthing API key
+  ansible.builtin.slurp:
+    path: "{{ stack_dir }}/syncthing/config/syncthing-api-key.txt"
+  register: syncthing_api_key_slurp
+  no_log: true
+  when: syncthing_api_key_file.stat.exists
+
+- name: Set Syncthing API key fact from persisted file
+  ansible.builtin.set_fact:
+    syncthing_api_key: "{{ syncthing_api_key_slurp.content | b64decode | trim }}"
+  no_log: true
+  when: syncthing_api_key_file.stat.exists
+
+- name: Persist Syncthing API key for future runs
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/syncthing/config/syncthing-api-key.txt"
+    content: "{{ syncthing_api_key }}\n"
+    mode: "0600"
+  when: not syncthing_api_key_file.stat.exists
+  no_log: true
 
 - name: Ensure Authelia OIDC private key exists
   ansible.builtin.shell: |
@@ -73,6 +126,53 @@
 - name: Set hashed OIDC client secret fact
   ansible.builtin.set_fact:
     oidc_client_secret_hash: "{{ oidc_client_secret_hash_slurp.content | b64decode | trim }}"
+  no_log: true
+
+- name: Check for cached Grafana OIDC client secret hash
+  ansible.builtin.stat:
+    path: "{{ grafana_oidc_client_secret_hash_path }}"
+  register: grafana_oidc_client_secret_hash_stat
+
+- name: Generate hashed Grafana OIDC client secret
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - "{{ authelia_image }}"
+      - authelia
+      - crypto
+      - hash
+      - generate
+      - pbkdf2
+      - --password
+      - "{{ grafana_oidc_client_secret }}"
+      - --variant
+      - sha512
+      - --iterations
+      - "310000"
+      - --no-confirm
+  register: grafana_oidc_client_secret_hash_cmd
+  when: not grafana_oidc_client_secret_hash_stat.stat.exists
+  no_log: true
+
+- name: Persist hashed Grafana OIDC client secret
+  ansible.builtin.copy:
+    dest: "{{ grafana_oidc_client_secret_hash_path }}"
+    content: "{{ grafana_oidc_client_secret_hash_cmd.stdout | regex_replace('^Digest:\\s*', '') | trim }}\n"
+    mode: "0600"
+  when: not grafana_oidc_client_secret_hash_stat.stat.exists
+  no_log: true
+
+- name: Load hashed Grafana OIDC client secret
+  ansible.builtin.slurp:
+    path: "{{ grafana_oidc_client_secret_hash_path }}"
+  register: grafana_oidc_client_secret_hash_slurp
+  no_log: true
+
+- name: Set hashed Grafana OIDC client secret fact
+  ansible.builtin.set_fact:
+    grafana_oidc_client_secret_hash: "{{ grafana_oidc_client_secret_hash_slurp.content | b64decode | trim }}"
   no_log: true
 
 - name: Load Authelia OIDC private key for JWKS
@@ -162,6 +262,135 @@
     dest: "{{ stack_dir }}/vikunja/config.yml"
     mode: "0644"
 
+- name: Render OpenClaw auth-profiles.json
+  ansible.builtin.template:
+    src: openclaw-auth-profiles.json.j2
+    dest: "{{ stack_dir }}/openclaw/config/agents/main/agent/auth-profiles.json"
+    mode: "0600"
+  no_log: true
+
+- name: Render OpenClaw gateway config
+  ansible.builtin.template:
+    src: openclaw.json.j2
+    dest: "{{ stack_dir }}/openclaw/config/openclaw.json"
+    mode: "0644"
+
+- name: Render Syncthing initial config
+  ansible.builtin.template:
+    src: syncthing-config.xml.j2
+    dest: "{{ stack_dir }}/syncthing/config/config.xml"
+    mode: "0644"
+  # Syncthing will overwrite this on first run, but it provides a starting point
+  # with insecureSkipHostcheck=true and gui.address=0.0.0.0:8384 for Traefik compatibility
+
+- name: Render Loki config
+  ansible.builtin.template:
+    src: loki-config.yml.j2
+    dest: "{{ stack_dir }}/loki/loki-config.yml"
+    mode: "0644"
+
+- name: Render Promtail config
+  ansible.builtin.template:
+    src: promtail-config.yml.j2
+    dest: "{{ stack_dir }}/promtail/promtail-config.yml"
+    mode: "0644"
+
+- name: Render Prometheus config
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ stack_dir }}/prometheus/prometheus.yml"
+    mode: "0644"
+
+- name: Render Grafana datasource provisioning
+  ansible.builtin.template:
+    src: grafana-datasources.yml.j2
+    dest: "{{ stack_dir }}/grafana/provisioning/datasources/loki.yml"
+    mode: "0644"
+
+- name: Render Grafana dashboard provisioning config
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/grafana/provisioning/dashboards/dashboards.yml"
+    content: |
+      apiVersion: 1
+
+      providers:
+        - name: "default"
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /etc/grafana/dashboards
+    mode: "0644"
+
+- name: Copy Syncthing Grafana dashboard
+  ansible.builtin.copy:
+    src: syncthing-dashboard.json
+    dest: "{{ stack_dir }}/grafana/dashboards/syncthing.json"
+    mode: "0644"
+  tags:
+    - deploy_stack
+
+- name: Copy Docker Containers Grafana dashboard
+  ansible.builtin.copy:
+    src: docker-containers-dashboard.json
+    dest: "{{ stack_dir }}/grafana/dashboards/docker-containers.json"
+    mode: "0644"
+  tags:
+    - deploy_stack
+
+- name: Copy Traefik Grafana dashboard
+  ansible.builtin.copy:
+    src: traefik-dashboard.json
+    dest: "{{ stack_dir }}/grafana/dashboards/traefik.json"
+    mode: "0644"
+  tags:
+    - deploy_stack
+
+- name: Copy Prometheus Grafana datasource
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/grafana/provisioning/datasources/prometheus.yml"
+    content: |
+      apiVersion: 1
+
+      datasources:
+        - name: Prometheus
+          uid: prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus:9090
+          isDefault: false
+          editable: true
+    mode: "0644"
+
+- name: Render Grafana ini config
+  ansible.builtin.template:
+    src: grafana.ini.j2
+    dest: "{{ stack_dir }}/grafana/grafana.ini"
+    mode: "0644"
+
+- name: Ensure Grafana admin password secret file exists
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/grafana/secrets/grafana_admin_password"
+    content: "{{ grafana_admin_password | default('changeme') }}\n"
+    mode: "0644"
+
+- name: Fix permissions for container volumes owned by UID 1000 or 10001
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    recurse: true
+  loop:
+    - { path: "{{ stack_dir }}/vikunja/files", owner: "1000" }
+    - { path: "{{ stack_dir }}/syncthing/config", owner: "1000" }
+    - { path: "{{ stack_dir }}/syncthing/data", owner: "1000" }
+    - { path: "{{ stack_dir }}/openclaw/config", owner: "1000" }
+    - { path: /var/lib/docker/volumes/stack_navidrome_data/_data, owner: "1000" }
+    - { path: /var/lib/docker/volumes/stack_loki_data/_data, owner: "10001" }
+
 - name: Install systemd unit for stack
   ansible.builtin.template:
     src: stack.service.j2
@@ -177,3 +406,57 @@
     name: stack
     state: started
     enabled: true
+
+- name: Fix permissions for container volumes owned by UID 1000 or 10001
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    recurse: true
+  loop:
+    - { path: "{{ stack_dir }}/vikunja/files", owner: "1000" }
+    - { path: "{{ stack_dir }}/syncthing/config", owner: "1000" }
+    - { path: "{{ stack_dir }}/syncthing/data", owner: "1000" }
+    - { path: "{{ stack_dir }}/openclaw/config", owner: "1000" }
+    - { path: /var/lib/docker/volumes/stack_navidrome_data/_data, owner: "1000" }
+    - { path: /var/lib/docker/volumes/stack_loki_data/_data, owner: "10001" }
+  # Volumes are created by Docker compose on first start, so we fix perms after
+  ignore_errors: true
+
+- name: Create Navidrome user 'theo' in database (for external auth)
+  ansible.builtin.shell:
+    cmd: >
+      docker compose exec -T navidrome
+      sqlite3 /data/navidrome.db
+      "INSERT OR IGNORE INTO user (id, user_name, name, email, password, is_admin, created_at, updated_at)
+       VALUES ('theo', 'theo', 'theo', '{{ email_admin }}', '', 1, datetime('now'), datetime('now'));"
+  args:
+    chdir: "{{ stack_dir }}"
+  register: navidrome_user_creation
+  changed_when: navidrome_user_creation.rc == 0
+  failed_when: false
+  # Navidrome uses external auth (Authelia), so the user must exist in its local DB
+  # for the authenticated username to be recognized. This handles fresh installs where
+  # the Navidrome database is empty and auto-creation via external auth doesn't work.
+  # See AGENTS.md "Known Issues & Resolutions" for details.
+
+- name: Create Vikunja CalDAV local user (for CalDAV sync with DAVx5, Tasks.org, etc.)
+  ansible.builtin.shell:
+    cmd: >
+      docker compose exec -T vikunja
+      /app/vikunja/vikunja user create
+      --username caldav
+      --email "{{ email_admin }}"
+      --password "{{ vikunja_caldav_password }}"
+      2>&1 || true
+  args:
+    chdir: "{{ stack_dir }}"
+  register: caldav_user_creation
+  changed_when: caldav_user_creation.stdout is search("User was created successfully")
+  failed_when: false
+  # CalDAV clients (DAVx5, Tasks.org, OpenTasks) authenticate directly against Vikunja
+  # using username/password or CalDAV token. The main user 'theo' is created via OIDC
+  # (Authelia) and cannot use local password auth. A dedicated local user 'caldav' is
+  # created here for CalDAV sync. Traefik routing for /dav/* bypasses Authelia.
+  # See AGENTS.md "Known Issues & Resolutions" for details.

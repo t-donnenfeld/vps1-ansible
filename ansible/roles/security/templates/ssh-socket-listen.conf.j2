@@ -1,3 +1,4 @@
 [Socket]
 ListenStream=
-ListenStream={{ ssh_port }}
+ListenStream=0.0.0.0:{{ ssh_port }}
+ListenStream=[::]:{{ ssh_port }}

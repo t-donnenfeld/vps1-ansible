@@ -9,10 +9,23 @@ http:
           - "Remote-Groups"
           - "Remote-Name"
           - "Remote-Email"
-    redirect-to-https:
-      redirectScheme:
-        scheme: https
-        permanent: true
+        maxResponseBodySize: 1048576
+    authelia-basicauth:
+      forwardAuth:
+        address: "http://authelia:9091/api/verify?auth=basic"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - "Remote-User"
+          - "Remote-Groups"
+          - "Remote-Name"
+          - "Remote-Email"
+    drop-untrusted-auth-headers:
+      headers:
+        customRequestHeaders:
+          Remote-User: ""
+          Remote-Groups: ""
+          Remote-Name: ""
+          Remote-Email: ""
     redirect-to-https:
       redirectScheme:
         scheme: https

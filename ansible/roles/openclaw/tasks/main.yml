@@ -1,0 +1,7 @@
+---
+- name: Create OpenClaw config directory
+  ansible.builtin.file:
+    path: "{{ stack_dir }}/openclaw/config"
+    state: directory
+    mode: "0755"
+

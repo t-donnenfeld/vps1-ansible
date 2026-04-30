@@ -1,0 +1,22 @@
+---
+# Runtime bridge config — single YAML file that OpenClaw's webhook handler reads
+
+- name: Create OpenClaw integrations directory
+  ansible.builtin.file:
+    path: "/etc/openclaw"
+    state: directory
+    mode: "0755"
+
+- name: Render OpenClaw integrations.yaml
+  ansible.builtin.template:
+    src: integrations.yaml.j2
+    dest: "/etc/openclaw/integrations.yaml"
+    mode: "0644"
+
+- name: Copy integrations.yaml to OpenClaw config directory for container access
+  ansible.builtin.copy:
+    src: "/etc/openclaw/integrations.yaml"
+    dest: "{{ stack_dir }}/openclaw/config/integrations.yaml"
+    remote_src: true
+    mode: "0644"
+

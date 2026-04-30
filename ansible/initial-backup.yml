@@ -1,0 +1,20 @@
+- name: Run initial backup
+  hosts: vps
+  become: true
+  gather_facts: false
+  vars_files:
+    - group_vars/vps.yml
+    - group_vars/vps.vault.yml
+  vars:
+    ansible_user: "{{ admin_user }}"
+    ansible_port: "{{ ssh_port }}"
+    ansible_ssh_private_key_file: "{{ vps_ssh_private_key_file }}"
+  tasks:
+    - name: Run initial backup
+      ansible.builtin.command:
+        argv:
+          - "{{ backup_dir }}/scripts/backup.sh"
+      register: initial_backup
+      changed_when: initial_backup.rc == 0
+      failed_when: initial_backup.rc != 0
+

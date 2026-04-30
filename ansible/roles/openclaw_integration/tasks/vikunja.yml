@@ -1,0 +1,49 @@
+---
+# Vikunja integration with OpenClaw
+
+- name: Check if Vikunja API is reachable
+  ansible.builtin.uri:
+    url: "http://vikunja:3456/api/v1/info"
+    method: GET
+  register: vikunja_api_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Verify Vikunja API token by calling /user endpoint
+  ansible.builtin.uri:
+    url: "http://vikunja:3456/api/v1/user"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ vikunja_api_token }}"
+  register: vikunja_token_verify
+  ignore_errors: true
+  changed_when: false
+  when: vikunja_api_check is success
+
+- name: Warn if Vikunja API token is invalid
+  ansible.builtin.debug:
+    msg: >-
+      Vikunja API token verification failed.
+      The token in vps.vault.yml may not match what Vikunja has stored.
+      OpenClaw integration will still work, but Vikunja API calls may fail.
+  when:
+    - vikunja_api_check is success
+    - vikunja_token_verify is failed
+
+- name: Record Vikunja API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/vikunja-endpoint.json"
+    content: |
+      {
+        "url": "http://vikunja:3456",
+        "description": "Vikunja REST API (internal Docker knowledge network)",
+        "api_token": "{{ vikunja_api_token }}",
+        "api_version": "v1",
+        "info_endpoint": "http://vikunja:3456/api/v1/info",
+        "tasks_endpoint": "http://vikunja:3456/api/v1/tasks",
+        "projects_endpoint": "http://vikunja:3456/api/v1/projects",
+        "dashboard_url": "https://{{ subdomain_tasks }}.{{ domain }}"
+      }
+    mode: "0640"
+  no_log: true
+

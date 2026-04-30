@@ -1,0 +1,80 @@
+{
+  "gateway": {
+    "mode": "local",
+    "port": 8080,
+    "bind": "lan",
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    },
+    "controlUi": {
+      "enabled": true,
+      "basePath": "/",
+      "allowedOrigins": ["https://claw.les12.fr"]
+    },
+    "trustedProxies": ["172.16.0.0/12", "10.0.0.0/8"],
+    "nodes": {
+      "pairing": {
+        "autoApproveCidrs": ["0.0.0.0/0"]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "deepseek/deepseek-chat",
+        "fallbacks": []
+      },
+      "models": {
+        "deepseek/deepseek-chat": {
+          "alias": "deepseek"
+        },
+        "deepseek/deepseek-reasoner": {
+          "alias": "deepseek-reasoner"
+        }
+      },
+      "heartbeat": {
+        "every": "0m"
+      },
+      "skipBootstrap": true,
+      "userTimezone": "Europe/Paris",
+      "timeFormat": "24",
+      "timeoutSeconds": 120,
+      "contextTokens": 128000
+    },
+    "list": [
+      {
+        "id": "main",
+        "default": true,
+        "name": "Claw",
+        "workspace": "/home/node/.openclaw/workspace"
+      }
+    ]
+  },
+  "channels": {
+    "signal": {
+      "enabled": true,
+      "account": "+34610030733",
+      "autoStart": false,
+      "dmPolicy": "open",
+      "groupPolicy": "open",
+      "cliPath": "",
+      "httpUrl": "http://signal:8080",
+      "apiMode": "container",
+      "receiveMode": "on-start",
+      "reactionLevel": "extensive"
+    }
+  },
+  "plugins": {
+    "enabled": true,
+    "entries": {
+      "signal": {
+        "enabled": true
+      }
+    }
+  },
+  "logging": {
+    "level": "info",
+    "consoleStyle": "compact"
+  }
+}

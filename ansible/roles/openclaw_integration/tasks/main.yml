@@ -1,0 +1,17 @@
+---
+# openclaw_integration — Second-phase integration tasks
+# Connects each service to OpenClaw so they can talk at runtime.
+# Runs after deploy_stack (all services are up and running).
+
+- name: Include integration tasks
+  ansible.builtin.include_tasks: "{{ item }}"
+  loop:
+    - prometheus.yml
+    - loki.yml
+    - grafana.yml
+    - syncthing.yml
+    - vikunja.yml
+    - navidrome.yml
+    - signal.yml
+    - integrations.yml
+

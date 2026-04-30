@@ -1,0 +1,24 @@
+---
+# Loki integration with OpenClaw
+
+- name: Ensure Loki is on the knowledge network for service-to-service access
+  ansible.builtin.lineinfile:
+    path: "{{ stack_dir }}/docker-compose.yml"
+    insertafter: "networks:\\n      - internal"
+    line: "      - knowledge"
+    state: present
+  register: loki_network_updated
+
+- name: Record Loki API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/loki-endpoint.json"
+    content: |
+      {
+        "url": "http://loki:3100",
+        "description": "Loki logs API (internal Docker network, no auth, no tenant ID)",
+        "tenant_id": null,
+        "query_endpoint": "http://loki:3100/loki/api/v1/query_range",
+        "labels_endpoint": "http://loki:3100/loki/api/v1/label"
+      }
+    mode: "0644"
+

@@ -1,4 +1,4 @@
-ssh_port: 55022
+ssh_port: 22
 admin_user: theo
 admin_pubkey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKzg2IE4TSt6qRRzJhnrAbW945OslJPAsYfFYOv0sI75 theo"
 sudo_nopasswd: true
@@ -36,6 +36,9 @@ domain: les12.fr
 subdomain_auth: auth
 subdomain_tasks: tasks
 subdomain_dashboard: traefik
+subdomain_music: music
+subdomain_syncthing: sync
+subdomain_openclaw: claw
 email_admin: theotime.donnenfeld@les12.fr
 
 # Paths
@@ -50,10 +53,20 @@ vikunja_db_user: vikunja
 
 # Authelia OIDC
 oidc_client_id: vikunja
+grafana_oidc_client_id: grafana
 authelia_image: authelia/authelia:latest
+navidrome_image: deluan/navidrome:latest
+syncthing_image: syncthing/syncthing:latest
+openclaw_image: theo/openclaw:stable #Built on VPS directly
+openclaw_repo_url: https://github.com/openclaw/openclaw.git
+openclaw_repo_dest: /opt/openclaw-src
+signal_image: bbernhard/signal-cli-rest-api:latest
+music_path: /mnt/music
+obsidian_vaults_dir: /opt/services/shared/obsidian/vaults
 authelia_oidc_jwks_key_id: "authelia-oidc-key"
 authelia_oidc_jwks_algorithm: RS256
 authelia_oidc_client_secret_hash_path: "{{ stack_dir }}/authelia/secrets/oidc_client_secret.hash"
+grafana_oidc_client_secret_hash_path: "{{ stack_dir }}/authelia/secrets/grafana_oidc_client_secret.hash"
 
 authelia_oidc_private_key_path: "{{ stack_dir }}/authelia/secrets/oidc_private_key.pem"
 
@@ -64,3 +77,27 @@ mail_from: "noreply@les12.fr"
 
 # Enable Traefik dashboard? (recommended: false unless protected)
 traefik_dashboard: true
+
+# Backup
+backup_dir: /var/backups/server-config
+backup_retention_days: 30
+
+# AI provider API keys (set in vault)
+deepseek_api_key: ""
+
+# OpenClaw gateway token (set in vault)
+openclaw_gateway_token: ""
+
+# Syncthing API key (auto-generated, persisted)
+syncthing_api_key: ""
+
+# Vikunja CalDAV user password (local user for CalDAV sync with DAVx5, Tasks.org, etc.)
+vikunja_caldav_password: ""
+
+# Logging / Monitoring
+subdomain_grafana: grafana
+grafana_image: grafana/grafana:latest
+loki_image: grafana/loki:3.4.3
+promtail_image: grafana/promtail:3.4.3
+# grafana_admin_password: set in vault (vps.vault.yml)
+

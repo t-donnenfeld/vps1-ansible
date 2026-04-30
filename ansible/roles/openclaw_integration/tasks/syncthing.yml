@@ -1,0 +1,62 @@
+---
+# Syncthing integration with OpenClaw
+
+- name: Check if Syncthing API key is already persisted
+  ansible.builtin.stat:
+    path: "{{ stack_dir }}/syncthing/config/syncthing-api-key.txt"
+  register: syncthing_api_key_file
+
+- name: Generate Syncthing API key if not persisted (alphanumeric only for XML safety)
+  ansible.builtin.set_fact:
+    syncthing_api_key: "{{ lookup('community.general.random_string', length=40, upper=true, lower=true, digits=true, special=false) }}"
+  when: not syncthing_api_key_file.stat.exists
+  no_log: true
+
+- name: Persist Syncthing API key for future runs
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/syncthing/config/syncthing-api-key.txt"
+    content: "{{ syncthing_api_key }}\n"
+    mode: "0600"
+  when: not syncthing_api_key_file.stat.exists
+  no_log: true
+
+- name: Load persisted Syncthing API key
+  ansible.builtin.slurp:
+    path: "{{ stack_dir }}/syncthing/config/syncthing-api-key.txt"
+  register: syncthing_api_key_slurp
+  no_log: true
+
+- name: Set Syncthing API key fact from persisted file
+  ansible.builtin.set_fact:
+    syncthing_api_key: "{{ syncthing_api_key_slurp.content | b64decode | trim }}"
+  no_log: true
+
+- name: Update Syncthing config with real API key
+  ansible.builtin.replace:
+    path: "{{ stack_dir }}/syncthing/config/config.xml"
+    regexp: "<apikey>[^<]+</apikey>"
+    replace: "<apikey>{{ syncthing_api_key }}</apikey>"
+  register: syncthing_config_updated
+
+- name: Restart Syncthing to pick up new API key
+  ansible.builtin.systemd:
+    name: stack
+    state: restarted
+  when: syncthing_config_updated.changed
+  # Restarting the whole stack is heavy; in production you'd use
+  # `docker compose restart syncthing` but we use the systemd unit
+
+- name: Record Syncthing API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/syncthing-endpoint.json"
+    content: |
+      {
+        "url": "http://syncthing:8384",
+        "description": "Syncthing REST API (internal Docker knowledge network)",
+        "api_key": "{{ syncthing_api_key }}",
+        "metrics_url": "http://syncthing:8384/metrics",
+        "dashboard_url": "https://{{ subdomain_syncthing }}.{{ domain }}"
+      }
+    mode: "0640"
+  no_log: true
+

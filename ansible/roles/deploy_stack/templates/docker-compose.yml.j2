@@ -13,6 +13,7 @@ services:
       - traefik_letsencrypt:/letsencrypt
     networks:
       - web
+      - knowledge
     labels:
       - traefik.enable=true
       - traefik.http.routers.dashboard.rule=Host(`{{ subdomain_dashboard }}.{{ domain }}`)
@@ -50,6 +51,7 @@ services:
     networks:
       - web
       - internal
+      - knowledge
     labels:
       - traefik.enable=true
       - traefik.docker.network=stack_web
@@ -57,6 +59,11 @@ services:
       - traefik.http.routers.authelia.entrypoints=websecure
       - traefik.http.routers.authelia.tls.certresolver=letsencrypt
       - traefik.http.services.authelia.loadbalancer.server.port=9091
+      # Define the basicauth and drop-headers middlewares at the entrypoint level
+      - traefik.http.middlewares.drop-untrusted-auth-headers.headers.customrequestheaders.Remote-User=
+      - traefik.http.middlewares.drop-untrusted-auth-headers.headers.customrequestheaders.Remote-Groups=
+      - traefik.http.middlewares.drop-untrusted-auth-headers.headers.customrequestheaders.Remote-Name=
+      - traefik.http.middlewares.drop-untrusted-auth-headers.headers.customrequestheaders.Remote-Email=
 
   vikunja:
     image: vikunja/vikunja:latest
@@ -89,15 +96,30 @@ services:
     networks:
       - web
       - internal
+      - knowledge
     labels:
       - traefik.enable=true
       - traefik.docker.network=stack_web
+      # Routeur principal (frontend SPA + API)
       - traefik.http.routers.vikunja.rule=Host(`{{ subdomain_tasks }}.{{ domain }}`)
       - traefik.http.routers.vikunja.entrypoints=websecure
       - traefik.http.routers.vikunja.tls.certresolver=letsencrypt
       - traefik.http.services.vikunja.loadbalancer.server.port=3456
       # Optional: protect with Authelia at proxy level too:
       # - traefik.http.routers.vikunja.middlewares=authelia@file
+      # Routeur CalDAV : priorité haute pour que /dav/* aille directement au backend
+      # Google Calendar et autres clients CalDAV ne supportent pas Authelia/OIDC.
+      # Ils s'authentifient via Basic Auth directement auprès de Vikunja.
+      - traefik.http.routers.vikunja-dav.rule=Host(`{{ subdomain_tasks }}.{{ domain }}`) && PathPrefix(`/dav/`)
+      - traefik.http.routers.vikunja-dav.entrypoints=websecure
+      - traefik.http.routers.vikunja-dav.tls.certresolver=letsencrypt
+      - traefik.http.routers.vikunja-dav.service=vikunja
+      - traefik.http.routers.vikunja-dav.priority=100
+      # HTTP -> HTTPS redirect
+      - traefik.http.routers.vikunja-web.rule=Host(`{{ subdomain_tasks }}.{{ domain }}`)
+      - traefik.http.routers.vikunja-web.entrypoints=web
+      - traefik.http.routers.vikunja-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.vikunja-web.service=vikunja
 
   navidrome:
     image: "{{ navidrome_image }}"
@@ -108,30 +130,280 @@ services:
       - navidrome_data:/data
       - {{ music_path | default('/mnt/music') }}:/music:ro
     environment:
-      ND_EXTAUTH_TRUSTEDSOURCES: "127.0.0.1/8,172.0.0.0/8"
+      ND_EXTAUTH_TRUSTEDSOURCES: "0.0.0.0/0,::/0"
       ND_EXTAUTH_USERHEADER: "Remote-User"
       ND_ENABLEUSEREDITING: "false"
     labels:
       - traefik.enable=true
       - traefik.docker.network=stack_web
+      # Web UI + Subsonic clients using web-based Authelia auth (default)
       - traefik.http.routers.navidrome.rule=Host(`{{ subdomain_music }}.{{ domain }}`)
       - traefik.http.routers.navidrome.entrypoints=websecure
       - traefik.http.routers.navidrome.tls.certresolver=letsencrypt
       - traefik.http.services.navidrome.loadbalancer.server.port=4533
       - traefik.http.routers.navidrome.middlewares=authelia@file
+      - traefik.http.routers.navidrome.priority=10
+      # Subsonic API router: bypasses Authelia for mobile clients (Symfonium, Amperfy, play:Sub, etc.)
+      # These clients authenticate directly against Navidrome's Subsonic API using password/token auth,
+      # and do NOT support Authelia's forward auth or OIDC flows. Bypassing Authelia for /rest/*
+      # is the standard recommended approach for Subsonic-compatible APIs behind a reverse proxy.
+      # Security: Navidrome handles its own auth for /rest/* endpoints (Subsonic password/token).
+      - traefik.http.routers.navidrome-api.rule=Host(`{{ subdomain_music }}.{{ domain }}`) && PathPrefix(`/rest/`)
+      - traefik.http.routers.navidrome-api.entrypoints=websecure
+      - traefik.http.routers.navidrome-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.navidrome-api.middlewares=drop-untrusted-auth-headers@docker
+      - traefik.http.routers.navidrome-api.service=navidrome
+      - traefik.http.routers.navidrome-api.priority=100
+      # HTTP -> HTTPS redirect
       - traefik.http.routers.navidrome-web.rule=Host(`{{ subdomain_music }}.{{ domain }}`)
       - traefik.http.routers.navidrome-web.entrypoints=web
-      - traefik.http.routers.navidrome-web.middlewares=redirect-to-https@file
-      - traefik.http.routers.navidrome-web.rule=Host(`{{ subdomain_music }}.{{ domain }}`)
-      - traefik.http.routers.navidrome-web.entrypoints=web
-      - traefik.http.routers.navidrome-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.navidrome-web.middlewares=drop-untrusted-auth-headers@docker,redirect-to-https@file
+      - traefik.http.routers.navidrome-web.service=navidrome
+
+  loki:
+    image: "{{ loki_image }}"
+    command:
+      - -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - {{ stack_dir }}/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    networks:
+      - internal
+      - knowledge
+    restart: unless-stopped
+
+  promtail:
+    image: "{{ promtail_image }}"
+    command:
+      - -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - {{ stack_dir }}/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - internal
+    depends_on:
+      - loki
+      - authelia
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+      - --web.enable-lifecycle
+    volumes:
+      - {{ stack_dir }}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - knowledge
+    depends_on:
+      - syncthing
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg:ro
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - knowledge
+    restart: unless-stopped
+
+  grafana:
+    image: "{{ grafana_image }}"
+    env_file:
+      - .env
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - {{ stack_dir }}/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - {{ stack_dir }}/grafana/provisioning:/etc/grafana/provisioning:ro
+      - {{ stack_dir }}/grafana/dashboards:/etc/grafana/dashboards:ro
+    secrets:
+      - grafana_admin_password
+    networks:
+      - web
+      - internal
+    depends_on:
+      - loki
+      - authelia
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=stack_web
+      - traefik.http.routers.grafana.rule=Host(`{{ subdomain_grafana }}.{{ domain }}`)
+      - traefik.http.routers.grafana.entrypoints=websecure
+      - traefik.http.routers.grafana.tls.certresolver=letsencrypt
+      - traefik.http.services.grafana.loadbalancer.server.port=3000
+      - traefik.http.routers.grafana.service=grafana
+      - traefik.http.routers.grafana-web.rule=Host(`{{ subdomain_grafana }}.{{ domain }}`)
+      - traefik.http.routers.grafana-web.entrypoints=web
+      - traefik.http.routers.grafana-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.grafana-web.service=grafana
+
+  syncthing:
+    image: "{{ syncthing_image }}"
+    user: "1000:1000"
+    volumes:
+      - {{ stack_dir }}/syncthing/config:/var/syncthing/config
+      - {{ stack_dir }}/syncthing/data:/var/syncthing/data
+      - {{ obsidian_vaults_dir }}:/var/syncthing/vaults
+    networks:
+      - web
+      - knowledge
+    restart: unless-stopped
+    depends_on:
+      - authelia
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8384/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=stack_web
+      - traefik.http.routers.syncthing.rule=Host(`{{ subdomain_syncthing }}.{{ domain }}`)
+      - traefik.http.routers.syncthing.entrypoints=websecure
+      - traefik.http.routers.syncthing.tls.certresolver=letsencrypt
+      - traefik.http.services.syncthing.loadbalancer.server.port=8384
+      - traefik.http.routers.syncthing.middlewares=authelia@file
+      # HTTP -> HTTPS redirect
+      - traefik.http.routers.syncthing-web.rule=Host(`{{ subdomain_syncthing }}.{{ domain }}`)
+      - traefik.http.routers.syncthing-web.entrypoints=web
+      - traefik.http.routers.syncthing-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.syncthing-web.service=syncthing
+
+  openclaw:
+    image: "{{ openclaw_image }}"
+    user: "1000:1000"
+    stdin_open: true
+    tty: true
+    volumes:
+      # Named Docker volume for runtime state (sessions, journals, locks, workspace, cache)
+      # Provides stable overlay2 inode semantics, fixing "session file changed" race conditions
+      # that occur on host bind mounts during concurrent gateway + agent session writes.
+      - openclaw_state:/home/node/.openclaw
+      # Ansible-managed config files (read-only bind mount)
+      # Copied into named volume on container start via init script below
+      - {{ stack_dir }}/openclaw/config:/home/node/.openclaw-config:ro
+      # Obsidian vaults
+      - {{ obsidian_vaults_dir }}:/vaults:rw
+    networks:
+      - web
+      - knowledge
+    environment:
+      # Point data dir into the named volume for consistent filesystem semantics
+      OPENCLAW_DATA_DIR: "/home/node/.openclaw/data"
+      OPENCLAW_GATEWAY_TOKEN: "${OPENCLAW_GATEWAY_TOKEN}"
+      VIKUNJA_URL: "http://vikunja:3456"
+      VIKUNJA_API_TOKEN: "${VIKUNJA_API_TOKEN}"
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
+      SIGNAL_URL: "http://signal:8080"
+    # Init script: copies config files from read-only bind mount into named volume
+    # on first start or when config checksum changes. Uses checksum comparison to
+    # avoid unnecessary copies and never overwrites runtime state (sessions, journals).
+    # The $$ is Jinja2 escaping for a literal $ in the rendered output.
+    command: >
+      sh -c '
+        set -e
+        SRC=/home/node/.openclaw-config
+        DST=/home/node/.openclaw
+        MARKER=$${DST}/.config-checksum
+        if [ -d "$${SRC}" ]; then
+          CONFIG_FILES="openclaw.json agents/main/agent/auth-profiles.json integrations.yaml"
+          NEED_COPY=0
+          if [ ! -f "$${MARKER}" ]; then
+            NEED_COPY=1
+          else
+            for f in $${CONFIG_FILES}; do
+              if [ -f "$${SRC}/$${f}" ]; then
+                SRC_SUM=$$(sha256sum "$${SRC}/$${f}" | cut -d" " -f1)
+                DST_SUM=$$(sha256sum "$${DST}/$${f}" 2>/dev/null | cut -d" " -f1 || echo "")
+                if [ "$${SRC_SUM}" != "$${DST_SUM}" ]; then
+                  NEED_COPY=1
+                  break
+                fi
+              fi
+            done
+          fi
+          if [ "$${NEED_COPY}" = "1" ]; then
+            echo "openclaw: initializing config from bind mount..."
+            for f in $${CONFIG_FILES}; do
+              if [ -f "$${SRC}/$${f}" ]; then
+                mkdir -p "$${DST}/$$(dirname $${f})"
+                cp "$${SRC}/$${f}" "$${DST}/$${f}"
+              fi
+            done
+            echo "openclaw: config initialized."
+          fi
+        fi
+        exec node openclaw.mjs gateway
+      '
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Increased start_period to account for config init script on first boot
+      start_period: 30s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=stack_web
+      - traefik.http.routers.openclaw.rule=Host(`{{ subdomain_openclaw }}.{{ domain }}`)
+      - traefik.http.routers.openclaw.entrypoints=websecure
+      - traefik.http.routers.openclaw.tls.certresolver=letsencrypt
+      - traefik.http.routers.openclaw.service=openclaw
+      - traefik.http.services.openclaw.loadbalancer.server.port=8080
+      - traefik.http.routers.openclaw.middlewares=authelia@file
+      # HTTP -> HTTPS redirect
+      - traefik.http.routers.openclaw-web.rule=Host(`{{ subdomain_openclaw }}.{{ domain }}`)
+      - traefik.http.routers.openclaw-web.entrypoints=web
+      - traefik.http.routers.openclaw-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.openclaw-web.service=openclaw
+
+  signal:
+    image: "{{ signal_image }}"
+    container_name: "{{ signal_container_name | default('signal-cli-rest-api') }}"
+    volumes:
+      - signal_data:/home/.local/share/signal-cli
+    networks:
+      - knowledge
+    environment:
+      MODE: "json-rpc"
+    restart: unless-stopped
 
 volumes:
   traefik_letsencrypt:
   pgdata:
   # Named vikunja_files removed (using host bind mount instead)
   navidrome_data:
+  loki_data:
+  grafana_data:
+  prometheus_data:
+  signal_data:
+  # Named volume for OpenClaw runtime state (sessions, journals, locks, workspace, cache)
+  # Provides stable overlay2 inode semantics, fixing session file corruption on bind mounts
+  openclaw_state:
 
 networks:
   web:
   internal:
+  knowledge:
+    driver: bridge
+    internal: false
+
+secrets:
+  grafana_admin_password:
+    file: {{ stack_dir }}/grafana/secrets/grafana_admin_password

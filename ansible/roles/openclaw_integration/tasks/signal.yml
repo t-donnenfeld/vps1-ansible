@@ -1,0 +1,25 @@
+---
+# Signal integration with OpenClaw
+
+- name: Record Signal API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/signal-endpoint.json"
+    content: |
+      {
+        "url": "http://signal:8080",
+        "description": "Signal Messenger REST API (signal-cli-rest-api, internal Docker knowledge network, no public access)",
+        "api_endpoint": "http://signal:8080",
+        "api_version": "v1",
+        "endpoints": {
+          "register": "http://signal:8080/v1/register/{number}",
+          "verify": "http://signal:8080/v1/register/{number}/verify/{token}",
+          "send": "http://signal:8080/v2/send",
+          "receive": "http://signal:8080/v1/receive/{number}",
+          "devices": "http://signal:8080/v1/devices/{number}",
+          "health": "http://signal:8080/health"
+        },
+        "public_url": null
+      }
+    mode: "0644"
+
+

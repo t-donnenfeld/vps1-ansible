@@ -1,0 +1,42 @@
+---
+# Grafana integration with OpenClaw
+
+- name: Create Grafana contact points provisioning directory
+  ansible.builtin.file:
+    path: "{{ stack_dir }}/grafana/provisioning/contact-points"
+    state: directory
+    mode: "0755"
+
+- name: Render Grafana webhook contact point for OpenClaw
+  ansible.builtin.template:
+    src: grafana-contact-point.yaml.j2
+    dest: "{{ stack_dir }}/grafana/provisioning/contact-points/openclaw-webhook.yml"
+    mode: "0644"
+
+- name: Render Grafana notification policy routing all alerts to OpenClaw
+  ansible.builtin.template:
+    src: grafana-notification-policy.yaml.j2
+    dest: "{{ stack_dir }}/grafana/provisioning/contact-points/notification-policy.yml"
+    mode: "0644"
+
+- name: Ensure Grafana is on the knowledge network to reach OpenClaw
+  ansible.builtin.lineinfile:
+    path: "{{ stack_dir }}/docker-compose.yml"
+    regexp: "      - knowledge"
+    insertafter: "      - internal"
+    line: "      - knowledge"
+    state: present
+  register: grafana_network_updated
+
+- name: Record Grafana API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/grafana-endpoint.json"
+    content: |
+      {
+        "url": "http://grafana:3000",
+        "description": "Grafana API (internal Docker network, no auth for webhook receiver)",
+        "webhook_path": "/webhook/grafana",
+        "dashboard_url": "https://{{ subdomain_grafana }}.{{ domain }}"
+      }
+    mode: "0644"
+

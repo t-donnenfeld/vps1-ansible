@@ -11,6 +11,8 @@ entryPoints:
           scheme: https
   websecure:
     address: ":443"
+  metrics:
+    address: ":8082"
 
 providers:
   docker:
@@ -23,6 +25,12 @@ providers:
 
 log:
   level: INFO
+
+metrics:
+  prometheus:
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    entryPoint: metrics
 
 certificatesResolvers:
   letsencrypt:

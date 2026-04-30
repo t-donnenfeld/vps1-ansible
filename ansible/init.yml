@@ -8,8 +8,9 @@
   vars:
     ansible_user: root
     ansible_port: 22
-    ansible_password: "{{ vps_initial_ssh_password }}"
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+    ansible_ssh_private_key_file: "{{ vps_ssh_private_key_file_init | default(omit) }}"
+    ansible_password: "{{ vps_initial_ssh_password | default(omit) }}"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o PasswordAuthentication=yes -o PreferredAuthentications=password,keyboard-interactive"
   tasks:
     - name: Create admin user
       ansible.builtin.user:
@@ -38,6 +39,10 @@
           - ufw
           - fail2ban
         state: present
+      register: apt_result
+      retries: 5
+      delay: 10
+      until: apt_result is success
 
     - name: Ensure OpenSSH drop-in directory exists
       ansible.builtin.file:
@@ -55,40 +60,9 @@
       ansible.builtin.command: /usr/sbin/sshd -t
       changed_when: false
 
-    - name: Detect ssh.socket unit
-      ansible.builtin.command: systemctl list-unit-files ssh.socket --no-legend
-      register: ssh_socket_unit
-      changed_when: false
-      failed_when: false
-
-    - name: Ensure SSH socket drop-in directory exists
-      ansible.builtin.file:
-        path: /etc/systemd/system/ssh.socket.d
-        state: directory
-        mode: "0755"
-      when: "'ssh.socket' in ssh_socket_unit.stdout"
-
-    - name: Configure SSH socket listening port
-      ansible.builtin.template:
-        src: roles/security/templates/ssh-socket-listen.conf.j2
-        dest: /etc/systemd/system/ssh.socket.d/10-listen-ports.conf
-        mode: "0644"
-      when: "'ssh.socket' in ssh_socket_unit.stdout"
-
-    - name: Reload systemd
-      ansible.builtin.systemd:
-        daemon_reload: true
-      when: "'ssh.socket' in ssh_socket_unit.stdout"
-
-    - name: Allow SSH on new port via UFW before changing
+    - name: Allow SSH on port 22 via UFW
       community.general.ufw:
         rule: limit
-        port: "{{ ssh_port }}"
-        proto: tcp
-
-    - name: Allow SSH on port 22 during transition
-      community.general.ufw:
-        rule: allow
         port: "22"
         proto: tcp
 
@@ -96,30 +70,8 @@
       community.general.ufw:
         state: enabled
 
-    - name: Restart SSH socket to activate new port
-      ansible.builtin.systemd:
-        name: ssh.socket
-        state: restarted
-      when: "'ssh.socket' in ssh_socket_unit.stdout"
-
-    - name: Restart SSH service to activate new port
+    - name: Start and enable fail2ban
       ansible.builtin.service:
-        name: ssh
-        state: restarted
-      when: "'ssh.socket' not in ssh_socket_unit.stdout"
-
-    - name: Wait for SSH on new port
-      ansible.builtin.wait_for:
-        port: "{{ ssh_port }}"
-        host: "{{ ansible_host | default(inventory_hostname) }}"
-        delay: 5
-        timeout: 60
-      become: false
-      connection: local
-
-    - name: Remove port 22 UFW rule
-      community.general.ufw:
-        rule: allow
-        port: "22"
-        proto: tcp
-        delete: true
+        name: fail2ban
+        state: started
+        enabled: true

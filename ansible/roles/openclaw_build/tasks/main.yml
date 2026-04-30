@@ -1,0 +1,43 @@
+---
+# Clone OpenClaw source and build Docker image
+
+- name: Install git if not present
+  ansible.builtin.apt:
+    name: git
+    state: present
+
+- name: Clone OpenClaw repository (skip if already exists)
+  ansible.builtin.git:
+    repo: "{{ openclaw_repo_url }}"
+    dest: "{{ openclaw_repo_dest }}"
+    update: false
+    force: false
+
+- name: Enable BuildKit in Docker daemon config
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "features": {
+          "buildkit": true
+        }
+      }
+    mode: "0644"
+  register: daemon_config
+
+- name: Restart Docker to apply BuildKit config
+  ansible.builtin.service:
+    name: docker
+    state: restarted
+  when: daemon_config.changed
+
+- name: Build OpenClaw Docker image
+  ansible.builtin.shell:
+    cmd: docker buildx build --load -t "{{ openclaw_image }}" -f Dockerfile .
+    chdir: "{{ openclaw_repo_dest }}"
+  register: build_result
+
+- name: Log build result
+  ansible.builtin.debug:
+    msg: "OpenClaw image {{ openclaw_image }} built successfully (changed: {{ build_result.changed }})"
+

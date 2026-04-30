@@ -1,0 +1,46 @@
+---
+# Prometheus integration with OpenClaw
+
+- name: Create Prometheus config directory for alerting rules
+  ansible.builtin.file:
+    path: "{{ stack_dir }}/prometheus/rules"
+    state: directory
+    mode: "0755"
+
+- name: Render Prometheus alerting rules
+  ansible.builtin.template:
+    src: prometheus-alerts.yml.j2
+    dest: "{{ stack_dir }}/prometheus/rules/alerts.yml"
+    mode: "0644"
+
+- name: Update Prometheus config to include alerting rules
+  ansible.builtin.blockinfile:
+    path: "{{ stack_dir }}/prometheus/prometheus.yml"
+    marker: ""
+    insertafter: "^global:"
+    block: |2
+
+      rule_files:
+        - /etc/prometheus/rules/alerts.yml
+    state: present
+  register: prometheus_config_updated
+
+- name: Reload Prometheus configuration if changed
+  ansible.builtin.uri:
+    url: "http://prometheus:9090/-/reload"
+    method: POST
+  when: prometheus_config_updated.changed
+  ignore_errors: true
+
+- name: Record Prometheus API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/prometheus-endpoint.json"
+    content: |
+      {
+        "url": "http://prometheus:9090",
+        "description": "Prometheus metrics API (internal Docker network, no auth)",
+        "alertmanager_url": "",
+        "alerting_rules_path": "/etc/prometheus/rules/alerts.yml"
+      }
+    mode: "0644"
+

@@ -11,6 +11,10 @@
     ansible_ssh_private_key_file: "{{ vps_ssh_private_key_file }}"
   tasks:
     - import_role:
+        name: common
+      tags: common
+
+    - import_role:
         name: security
       tags: security
 
@@ -19,5 +23,17 @@
       tags: docker
 
     - import_role:
+        name: openclaw_build
+      tags: openclaw_build
+
+    - import_role:
         name: deploy_stack
       tags: deploy_stack
+
+    - import_role:
+        name: backup
+      tags: backup
+
+    - import_role:
+        name: openclaw_integration
+      tags: openclaw_integration

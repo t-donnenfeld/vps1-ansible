@@ -1,0 +1,16 @@
+---
+# Navidrome integration with OpenClaw
+
+- name: Record Navidrome API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/navidrome-endpoint.json"
+    content: |
+      {
+        "url": "http://navidrome:4533",
+        "description": "Navidrome music streaming API (internal Docker web network)",
+        "api_endpoint": "http://navidrome:4533/rest",
+        "subsonic_compatible": true,
+        "dashboard_url": "https://{{ subdomain_music }}.{{ domain }}"
+      }
+    mode: "0644"
+

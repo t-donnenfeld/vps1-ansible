@@ -104,6 +104,13 @@
     state: started
     enabled: true
 
+- name: Flush fail2ban bans to prevent Ansible's own connections from triggering lockout
+  ansible.builtin.command: fail2ban-client unban --all
+  changed_when: false
+  failed_when: false
+  # Ansible's rapid connections during playbook execution can hit MaxAuthTries
+  # and trigger fail2ban bans that persist across reboots, locking us out.
+
 - name: Deploy sysctl hardening file
   ansible.builtin.template:
     src: 99-hardening.conf.j2
@@ -131,3 +138,4 @@
     dest: /etc/apt/apt.conf.d/52unattended-upgrades-local
     mode: "0644"
   notify: Restart unattended-upgrades
+

@@ -1,0 +1,23 @@
+[server]
+root_url = https://{{ subdomain_grafana }}.{{ domain }}
+serve_from_sub_path = false
+
+[auth]
+disable_login_form = false
+signout_redirect_url = https://{{ subdomain_auth }}.{{ domain }}/api/oidc/logout
+
+[auth.anonymous]
+enabled = false
+
+[auth.generic_oauth]
+enabled = true
+name = Authelia
+client_id = {{ grafana_oidc_client_id }}
+client_secret = {{ grafana_oidc_client_secret }}
+scopes = openid profile email
+auth_url = https://{{ subdomain_auth }}.{{ domain }}/api/oidc/authorization
+token_url = https://{{ subdomain_auth }}.{{ domain }}/api/oidc/token
+api_url = https://{{ subdomain_auth }}.{{ domain }}/api/oidc/userinfo
+allow_sign_up = true
+auto_login = true
+

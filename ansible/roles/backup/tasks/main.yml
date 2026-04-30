@@ -1,0 +1,40 @@
+---
+# Backup tasks for the server-config stack.
+# Runs as root via Ansible (become: true).
+#
+# Backups are written to {{ backup_dir }} (default: /var/backups).
+# A weekly cron job is installed to run the backup script.
+#
+# Strategy:
+# - PostgreSQL: pg_dumpall to a timestamped SQL file
+# - Obsidian vaults: tar.gz archive
+# - Docker volumes: tar.gz archive of each volume's _data directory
+# - Config dirs: tar.gz archive of stack_dir
+# - Retention: backups older than {{ backup_retention_days }} (default: 30) are pruned
+
+- name: Ensure backup directory exists
+  ansible.builtin.file:
+    path: "{{ backup_dir }}"
+    state: directory
+    mode: "0750"
+
+- name: Ensure backup scripts directory exists
+  ansible.builtin.file:
+    path: "{{ backup_dir }}/scripts"
+    state: directory
+    mode: "0750"
+
+- name: Render backup script
+  ansible.builtin.template:
+    src: backup.sh.j2
+    dest: "{{ backup_dir }}/scripts/backup.sh"
+    mode: "0750"
+
+- name: Install backup cron job (daily at 04:00)
+  ansible.builtin.cron:
+    name: "server-config daily backup"
+    minute: "0"
+    hour: "4"
+    job: "{{ backup_dir }}/scripts/backup.sh 2>> {{ backup_dir }}/backup.log"
+    user: root
+
