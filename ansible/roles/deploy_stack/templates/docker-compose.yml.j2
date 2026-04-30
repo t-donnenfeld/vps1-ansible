@@ -99,10 +99,32 @@ services:
       # Optional: protect with Authelia at proxy level too:
       # - traefik.http.routers.vikunja.middlewares=authelia@file
 
+  navidrome:
+    image: "{{ navidrome_image }}"
+    user: "1000:1000"
+    networks:
+      - web
+    volumes:
+      - navidrome_data:/data
+      - {{ music_path | default('/mnt/music') }}:/music:ro
+    environment:
+      ND_EXTAUTH_TRUSTEDSOURCES: "127.0.0.1/8,172.0.0.0/8"
+      ND_EXTAUTH_USERHEADER: "Remote-User"
+      ND_ENABLEUSEREDITING: "false"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=stack_web
+      - traefik.http.routers.navidrome.rule=Host(`{{ subdomain_music }}.{{ domain }}`)
+      - traefik.http.routers.navidrome.entrypoints=websecure
+      - traefik.http.routers.navidrome.tls.certresolver=letsencrypt
+      - traefik.http.services.navidrome.loadbalancer.server.port=4533
+      - traefik.http.routers.navidrome.middlewares=drop-untrusted-auth-headers@file,authelia@file
+
 volumes:
   traefik_letsencrypt:
   pgdata:
   # Named vikunja_files removed (using host bind mount instead)
+  navidrome_data:
 
 networks:
   web:
