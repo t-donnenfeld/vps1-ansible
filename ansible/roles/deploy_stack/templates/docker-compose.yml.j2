@@ -119,6 +119,12 @@ services:
       - traefik.http.routers.navidrome.tls.certresolver=letsencrypt
       - traefik.http.services.navidrome.loadbalancer.server.port=4533
       - traefik.http.routers.navidrome.middlewares=authelia@file
+      - traefik.http.routers.navidrome-web.rule=Host(`{{ subdomain_music }}.{{ domain }}`)
+      - traefik.http.routers.navidrome-web.entrypoints=web
+      - traefik.http.routers.navidrome-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.navidrome-web.rule=Host(`{{ subdomain_music }}.{{ domain }}`)
+      - traefik.http.routers.navidrome-web.entrypoints=web
+      - traefik.http.routers.navidrome-web.middlewares=redirect-to-https@file
 
 volumes:
   traefik_letsencrypt:
