@@ -1,0 +1,299 @@
+#
+# Wazuh Manager Configuration — ossec.conf
+#
+# WHY: This config focuses the Wazuh manager on:
+#   1. Receiving logs from the Wazuh agent (FIM, rootcheck, syscheck)
+#   2. Analyzing syslog for security events
+#   3. Forwarding alerts to Loki via syslog output
+#   4. File Integrity Monitoring for critical paths
+#
+# WHY NOT default config: Default Wazuh config is very verbose and
+# includes many rulesets we don't need (firewall, web app, database).
+# We trim to essentials for a Docker VPS.
+#
+# Security: Wazuh authd is disabled (we use pre-shared key for agent).
+# API is enabled on localhost only (not exposed externally).
+#
+
+<ossec_config>
+  <!--
+    Global configuration
+    Email alerts are disabled — we rely on Grafana alerting instead.
+    Alerts are forwarded to Loki via syslog output.
+  -->
+  <global>
+    <email_notification>no</email_notification>
+    <jsonout_output>yes</jsonout_output>
+    <alerts_log>yes</alerts_log>
+    <logall>no</logall>
+    <!-- WHY logall=no: Avoids logging every single event.
+         Only alerts (matched rules) are logged. Saves disk space. -->
+    <logall_json>no</logall_json>
+    <white_list>127.0.0.1</white_list>
+    <white_list>172.16.0.0/12</white_list>
+    <!-- WHY white_list: These are Docker network ranges.
+         Prevents Wazuh from triggering alerts for internal Docker traffic. -->
+  </global>
+
+  <!--
+    Alert level configuration
+    Only forward alerts >= level 5 to Loki (medium severity and above).
+    Lower levels are informational and not useful for security monitoring.
+  -->
+  <alerts>
+    <log_alert_level>3</log_alert_level>
+    <email_alert_level>12</email_alert_level>
+  </alerts>
+
+  <!--
+    Syslog output to Loki
+    WHY: Wazuh sends structured JSON alerts to syslog, which Promtail
+    picks up and forwards to Loki. This is the integration point between
+    Wazuh and our existing Loki/Grafana stack.
+  -->
+  <syslog_output>
+    <server>127.0.0.1</server>
+    <port>514</port>
+    <format>json</format>
+    <rule_id>all</rule_id>
+    <level>5</level>
+    <!-- WHY level=5: Only forward alerts >= level 5 (medium+).
+         Reduces noise in Loki while keeping actionable alerts. -->
+  </syslog_output>
+
+  <!--
+    Wazuh agent connection settings
+    We only have one agent (the host itself).
+  -->
+  <remote>
+    <connection>syslog</connection>
+    <port>1514</port>
+    <protocol>tcp</protocol>
+    <allowed-ips>127.0.0.1</allowed-ips>
+    <allowed-ips>172.16.0.0/12</allowed-ips>
+    <!-- WHY: Only accept connections from localhost and Docker network.
+         No external Wazuh agents. -->
+    <local_ip>0.0.0.0</local_ip>
+  </remote>
+
+  <!--
+    Authentication daemon
+    We use pre-shared key authentication for the local agent.
+    authd is disabled for security (no external agent registration).
+  -->
+  <auth>
+    <disabled>yes</disabled>
+  </auth>
+
+  <!--
+    File Integrity Monitoring (FIM)
+    WHY: Monitor critical system files and Docker-related paths.
+    FIM detects unauthorized changes to configuration files.
+  -->
+  <syscheck>
+    <disabled>no</disabled>
+    <frequency>3600</frequency>
+    <!-- WHY frequency=3600: Check every hour. Frequent enough for security,
+         infrequent enough to avoid excessive I/O. -->
+
+    <!-- Critical system files -->
+    <directories check_all="yes" realtime="yes">/etc</directories>
+    <directories check_all="yes" realtime="yes">/bin</directories>
+    <directories check_all="yes" realtime="yes">/sbin</directories>
+    <directories check_all="yes" realtime="yes">/usr/bin</directories>
+    <directories check_all="yes" realtime="yes">/usr/sbin</directories>
+
+    <!-- Docker-related paths -->
+    <directories check_all="yes" realtime="yes">{{ stack_dir }}</directories>
+    <directories check_all="yes" realtime="yes">/etc/docker</directories>
+
+    <!-- SSH configuration -->
+    <directories check_all="yes" realtime="yes">/etc/ssh</directories>
+
+    <!-- Systemd units -->
+    <directories check_all="yes" realtime="yes">/etc/systemd</directories>
+
+    <!-- Ignore temporary files and logs (too noisy) -->
+    <ignore>/etc/hostname</ignore>
+    <ignore>/etc/hosts</ignore>
+    <ignore>/etc/mtab</ignore>
+    <ignore>/etc/adjtime</ignore>
+    <ignore>/etc/machine-id</ignore>
+    <ignore>/etc/resolv.conf</ignore>
+    <ignore>/var/log</ignore>
+
+    <!-- File size limits -->
+    <max_eps>100</max_eps>
+    <scan_timeout>1800</scan_timeout>
+    <skip_nfs>yes</skip_nfs>
+    <skip_dev>yes</skip_dev>
+    <skip_proc>yes</skip_proc>
+    <skip_sys>yes</skip_sys>
+
+    <!-- Windows registry checks (not applicable) -->
+    <windows_registry_interval>never</windows_registry_interval>
+  </syscheck>
+
+  <!--
+    Rootkit detection
+    WHY: Detect common rootkits, hidden files, and kernel modules.
+    Essential for host-level security monitoring.
+  -->
+  <rootcheck>
+    <disabled>no</disabled>
+    <check_files>yes</check_files>
+    <check_trojans>yes</check_trojans>
+    <check_dev>yes</check_dev>
+    <check_sys>yes</check_sys>
+    <check_pids>yes</check_pids>
+    <check_ports>yes</check_ports>
+    <check_if>yes</check_if>
+    <!-- WHY: Check all rootkit indicators. These are lightweight checks
+         that don't significantly impact performance. -->
+    <frequency>86400</frequency>
+    <!-- WHY frequency=86400: Once per day is sufficient for rootkit checks. -->
+    <scan_timeout>1800</scan_timeout>
+    <skip_nfs>yes</skip_nfs>
+  </rootcheck>
+
+  <!--
+    Host-based anomaly detection
+    WHY: Detect unusual system behavior (new processes, network connections).
+  -->
+  <wodle name="host-deny">
+    <disabled>yes</disabled>
+    <!-- WHY disabled: fail2ban handles this better. -->
+  </wodle>
+
+  <wodle name="process-monitor">
+    <disabled>no</disabled>
+    <frequency>600</frequency>
+    <!-- WHY frequency=600: Check every 10 minutes for new processes. -->
+    <process_pattern>.*</process_pattern>
+  </wodle>
+
+  <!--
+    Log analysis — Host logs
+    WHY: Analyze system logs for security events (auth failures, sudo, etc.)
+  -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/auth.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/syslog</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/daemon.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/kern.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/dpkg.log</location>
+  </localfile>
+
+  <!--
+    Log analysis — Docker container logs
+    WHY: Monitor Docker events and container logs for security events.
+    Docker logs are already sent to Loki via Promtail, but Wazuh adds
+    additional analysis rules on top.
+  -->
+  <localfile>
+    <log_format>json</log_format>
+    <location>/var/lib/docker/containers/*/*-json.log</location>
+  </localfile>
+
+  <!--
+    Active response (disabled)
+    WHY: Active response (e.g., blocking IPs via iptables) is risky on a
+    VPS where we rely on fail2ban for this. Wazuh active response can
+    conflict with fail2ban and cause lockouts.
+  -->
+  <active-response>
+    <disabled>yes</disabled>
+  </active-response>
+
+  <!--
+    Command monitoring
+    WHY: Periodically run commands to check system state.
+  -->
+  <wodle name="command">
+    <disabled>no</disabled>
+    <tag>docker-ps</tag>
+    <command>docker ps --no-trunc</command>
+    <frequency>300</frequency>
+    <!-- WHY frequency=300: Check running containers every 5 minutes. -->
+    <timeout>30</timeout>
+  </wodle>
+
+  <wodle name="command">
+    <disabled>no</disabled>
+    <tag>docker-info</tag>
+    <command>docker info 2>/dev/null | head -50</command>
+    <frequency>3600</frequency>
+    <timeout>30</timeout>
+  </wodle>
+
+  <!--
+    OpenSCAP integration (disabled)
+    WHY: We use Lynis instead of OpenSCAP for compliance auditing.
+    OpenSCAP requires additional packages and is heavier.
+  -->
+  <wodle name="open-scap">
+    <disabled>yes</disabled>
+  </wodle>
+
+  <!--
+    Vulnerability detector (optional, disabled by default)
+    WHY: The vulnerability detector requires a CVE database download
+    (~200MB) and regular updates. Enable only if needed.
+  -->
+  <vulnerability-detector>
+    <disabled>{{ 'no' if wazuh_vulnerability_detector | default(false) else 'yes' }}</disabled>
+    <interval>1d</interval>
+    <run_on_start>no</run_on_start>
+    <provider name="canonical">
+      <enabled>{{ 'yes' if wazuh_vulnerability_detector | default(false) else 'no' }}</enabled>
+      <os>ubuntu</os>
+      <update_interval>1d</update_interval>
+    </provider>
+  </vulnerability-detector>
+
+  <!--
+    Internal logging
+    WHY: Keep Wazuh's own logs manageable.
+  -->
+  <internal>
+    <log_level>info</log_level>
+  </internal>
+
+  <!--
+    Cluster configuration (disabled)
+    WHY: Single-node deployment. No clustering needed.
+  -->
+  <cluster>
+    <disabled>yes</disabled>
+  </cluster>
+
+  <!--
+    Rules configuration
+    WHY: Use local rules for custom alert definitions.
+    Local rules are stored in the ruleset directory.
+  -->
+  <rules>
+    <include>rules_config.xml</include>
+    <include>local_rules.xml</include>
+    <!-- Add custom local rules file -->
+    <include>custom_rules.xml</include>
+  </rules>
+</ossec_config>
+

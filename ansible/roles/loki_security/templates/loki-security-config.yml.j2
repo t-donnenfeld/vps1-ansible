@@ -1,0 +1,169 @@
+#
+# Loki Security Configuration
+#
+# WHY ENHANCED: The original config was minimal (single-path filesystem storage).
+# This enhanced config adds:
+#   1. Retention policies: Security logs retained longer than general logs
+#   2. Compaction: Reduce storage footprint
+#   3. Structured metadata: Index labels for security queries
+#   4. Rate limiting: Prevent log flooding
+#   5. Query limits: Prevent expensive queries
+#
+# WHY TWO RETENTION PERIODS:
+#   - Security logs (auth, wazuh, lynis): 90 days (for compliance/trending)
+#   - General logs (docker, syslog): 30 days (debugging only)
+# Loki supports per-stream retention via the delete/compactor API,
+# but for simplicity we use a single retention period of 30 days with
+# a separate security-specific retention applied via Loki's newer
+# retention features.
+#
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  log_level: info
+  # WHY: gRPC is not needed for single-node deployment.
+  grpc_listen_port: 0
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# ---------------------------------------------------------------------------
+# Storage configuration
+# WHY: Use filesystem storage (simplest for single-node).
+# For multi-node or larger deployments, consider S3/GCS/MinIO.
+# ---------------------------------------------------------------------------
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-shipper-active
+    cache_location: /loki/tsdb-shipper-cache
+    # WHY: Single-node, no shipping needed.
+    shared_store: filesystem
+  filesystem:
+    directory: /loki/chunks
+
+# ---------------------------------------------------------------------------
+# Compactor configuration
+# WHY: The compactor deduplicates and merges index files, reducing
+# storage usage and improving query performance.
+# ---------------------------------------------------------------------------
+compactor:
+  working_directory: /loki/compactor
+  shared_store: filesystem
+  retention_enabled: true
+  delete_request_store: filesystem
+
+# ---------------------------------------------------------------------------
+# Limits configuration
+# WHY: Prevent resource exhaustion from misbehaving clients or queries.
+# ---------------------------------------------------------------------------
+limits_config:
+  # Reject old samples (prevent backfill from causing OOM)
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h  # 7 days
+
+  # Ingestion rate limits
+  ingestion_rate_mb: 10
+  ingestion_burst_size_mb: 20
+  # WHY 10MB/s: Sufficient for single VPS with ~20 containers.
+  # Increase if adding many more log sources.
+
+  # Per-stream rate limits
+  per_stream_rate_limit: 5MB
+  per_stream_rate_limit_burst: 15MB
+
+  # Query limits
+  max_query_series: 5000
+  max_query_parallelism: 32
+  cardinality_limit: 100000
+  max_streams_per_user: 0  # Unlimited (single user)
+  max_global_streams_per_user: 0  # Unlimited
+
+  # Retention
+  retention_period: 720h  # 30 days default
+  # WHY 30 days: Balances storage cost vs debugging needs.
+  # Security logs may need longer retention — see retention config below.
+
+  # Allow discovery of cardinality
+  allow_structured_metadata: true
+
+# ---------------------------------------------------------------------------
+# Retention configuration
+# WHY: Different log types have different retention needs.
+# Security logs (auth, wazuh, lynis) are retained longer for trend analysis.
+# ---------------------------------------------------------------------------
+# Note: Per-stream retention in Loki OSS requires the compactor with
+# retention_enabled=true. We use a single retention period for simplicity.
+# For longer security log retention, consider:
+#   1. Increasing global retention_period to 90d
+#   2. Or using the ruler to aggregate security metrics into Prometheus
+
+# ---------------------------------------------------------------------------
+# Ruler configuration (alerting)
+# WHY: Loki's ruler evaluates alerting rules against log data.
+# This enables alerting on security events directly from logs.
+# ---------------------------------------------------------------------------
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path: /loki/rules-temp
+  alertmanager_url: http://prometheus:9093
+  ring:
+    kvstore:
+      store: inmemory
+  enable_api: true
+  # WHY: Evaluate rules every 1 minute for timely security alerts.
+  evaluation_interval: 1m
+
+# ---------------------------------------------------------------------------
+# Analytics
+# WHY: Disable telemetry (privacy).
+# ---------------------------------------------------------------------------
+analytics:
+  reporting_enabled: false
+
+# ---------------------------------------------------------------------------
+# Query scheduler
+# WHY: Improves query performance by splitting and scheduling work.
+# ---------------------------------------------------------------------------
+query_scheduler:
+  max_outstanding_requests_per_tenant: 100
+
+# ---------------------------------------------------------------------------
+# Frontend
+# WHY: Configure query splitting for faster range queries.
+# ---------------------------------------------------------------------------
+frontend:
+  log_queries_longer_than: 5s
+  max_outstanding_per_tennant: 100
+  compress_responses: true
+
+# ---------------------------------------------------------------------------
+# Index gateway
+# WHY: Not needed for single-node deployment.
+# ---------------------------------------------------------------------------
+index_gateway:
+  mode: ring
+

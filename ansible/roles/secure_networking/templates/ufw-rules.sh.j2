@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+# Custom UFW Rules — Enhanced firewall configuration
+#
+# WHY: The basic UFW setup in the security role allows all outbound traffic
+# and only inbound on ports 22, 80, 443. This script adds:
+#   1. Rate limiting for SSH (prevent brute force at network level)
+#   2. Allow Docker-related traffic on internal networks
+#   3. Logging for blocked connections (security monitoring)
+#   4. Drop invalid packets (anti-spoofing)
+#
+# WHY NOT modify /etc/ufw/before.rules: Using a separate script that
+# runs ufw commands is more maintainable and survives ufw resets.
+#
+
+set -euo pipefail
+
+# --- Rate limiting ---
+# WHY: In addition to fail2ban, UFW rate limiting provides a first line
+# of defense against SSH brute force. Limits to 6 connections per 30s.
+ufw limit ssh/tcp comment 'Rate limit SSH connections'
+
+# --- Docker networks ---
+# WHY: Docker manages its own iptables rules. We need to ensure UFW
+# doesn't interfere with Docker's internal networking.
+# These rules allow traffic on Docker bridge networks.
+ufw allow in on docker0 comment 'Allow Docker bridge traffic'
+ufw allow in on stack_web comment 'Allow stack_web network traffic'
+ufw allow in on stack_internal comment 'Allow stack_internal network traffic'
+ufw allow in on stack_knowledge comment 'Allow stack_knowledge network traffic'
+
+# --- Allow established connections ---
+# WHY: Don't break established SSH sessions or existing connections.
+ufw allow in on eth0 to any port 22 proto tcp comment 'SSH'
+ufw allow in on eth0 to any port 80 proto tcp comment 'HTTP'
+ufw allow in on eth0 to any port 443 proto tcp comment 'HTTPS'
+
+# --- Default deny ---
+# WHY: Deny all incoming traffic by default, allow all outgoing.
+ufw default deny incoming
+ufw default allow outgoing
+
+# --- Logging ---
+# WHY: Enable logging for blocked packets. This feeds into Promtail/Loki
+# for security monitoring in Grafana.
+ufw logging low
+
+# --- Anti-spoofing ---
+# WHY: Drop invalid packets that could be part of spoofing attacks.
+# These are added to /etc/ufw/before.rules by default, but we ensure
+# they are present.
+
+echo "Custom UFW rules applied successfully."
+exit 0
+

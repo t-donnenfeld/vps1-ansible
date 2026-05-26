@@ -1,0 +1,91 @@
+#
+# Prometheus Recording Rules for Security Dashboards
+#
+# WHY: Recording rules pre-compute expensive queries at scrape time.
+# This makes Grafana dashboards load faster and reduces query load.
+#
+# WHY SECURITY-FOCUSED: These rules are specifically designed for
+# the security monitoring dashboards in Grafana.
+#
+
+groups:
+  - name: security-recording
+    interval: 15s
+    rules:
+      # -----------------------------------------------------------------------
+      # CPU metrics
+      # -----------------------------------------------------------------------
+      - record: node:cpu_usage_percent:avg_5m
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+      - record: node:cpu_usage_percent:max_5m
+        expr: 100 - (min by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+      # -----------------------------------------------------------------------
+      # Memory metrics
+      # -----------------------------------------------------------------------
+      - record: node:memory_usage_percent:avg_5m
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+
+      - record: node:memory_available_bytes:avg_5m
+        expr: avg by(instance) (node_memory_MemAvailable_bytes)
+
+      # -----------------------------------------------------------------------
+      # Disk metrics
+      # -----------------------------------------------------------------------
+      - record: node:disk_usage_percent:avg_5m
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs",mountpoint!="/boot"} /
+                     node_filesystem_size_bytes{fstype!="tmpfs",mountpoint!="/boot"})) * 100
+
+      - record: node:disk_available_bytes:avg_5m
+        expr: avg by(instance, mountpoint) (node_filesystem_avail_bytes{fstype!="tmpfs"})
+
+      # -----------------------------------------------------------------------
+      # Network metrics
+      # -----------------------------------------------------------------------
+      - record: node:network_receive_bytes:rate_5m
+        expr: rate(node_network_receive_bytes_total[5m])
+
+      - record: node:network_transmit_bytes:rate_5m
+        expr: rate(node_network_transmit_bytes_total[5m])
+
+      - record: node:network_errors:rate_5m
+        expr: rate(node_network_receive_errors_total[5m])
+
+      # -----------------------------------------------------------------------
+      # Container metrics
+      # -----------------------------------------------------------------------
+      - record: container:memory_usage_percent:avg_5m
+        expr: |
+          (container_memory_usage_bytes{container_label_service!=""} /
+           container_spec_memory_limit_bytes{container_label_service!=""}) * 100
+
+      - record: container:cpu_usage_percent:avg_5m
+        expr: |
+          rate(container_cpu_usage_seconds_total{container_label_service!=""}[5m]) * 100
+
+      # -----------------------------------------------------------------------
+      # Service uptime
+      # -----------------------------------------------------------------------
+      - record: service:uptime_percent:24h
+        expr: avg by(job) (up[24h]) * 100
+
+      - record: service:uptime_percent:7d
+        expr: avg by(job) (up[7d]) * 100
+
+      # -----------------------------------------------------------------------
+      # Security-specific metrics
+      # -----------------------------------------------------------------------
+      - record: security:traefik_5xx_rate:5m
+        expr: |
+          rate(traefik_service_requests_total{code=~"5[0-9]{2}"}[5m]) /
+          rate(traefik_service_requests_total[5m]) * 100
+
+      - record: security:traefik_4xx_rate:5m
+        expr: |
+          rate(traefik_service_requests_total{code=~"4[0-9]{2}"}[5m]) /
+          rate(traefik_service_requests_total[5m]) * 100
+
+      - record: security:syncthing_errors:rate_5m
+        expr: rate(syncthing_errors_total[5m])
+

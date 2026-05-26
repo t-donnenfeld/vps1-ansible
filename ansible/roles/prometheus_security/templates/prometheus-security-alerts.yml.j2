@@ -1,0 +1,237 @@
+{% raw %}#
+# Prometheus Security Alerting Rules
+#
+# WHY: These alerts complement the Loki-based alerts by focusing on
+# metrics-based security events (resource exhaustion, process anomalies).
+#
+# WHY TWO ALERT LAYERS (Prometheus + Loki):
+#   - Prometheus: Metric-based alerts (CPU, RAM, disk, network)
+#   - Loki: Log-based alerts (auth failures, Wazuh alerts, firewall blocks)
+# Together they provide comprehensive security coverage.
+#
+# Alerts are grouped by severity and type for easier management.
+#
+
+groups:
+  # ---------------------------------------------------------------------------
+  # Group: Host-level security alerts
+  # ---------------------------------------------------------------------------
+  - name: host-security
+    interval: 15s
+    rules:
+      - alert: HighDiskUsage
+        expr: |
+          (1 - (node_filesystem_avail_bytes{fstype!="tmpfs",mountpoint!="/boot"} /
+                node_filesystem_size_bytes{fstype!="tmpfs",mountpoint!="/boot"})) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "High disk usage on {{ $labels.mountpoint }}"
+          description: "Disk usage is {{ $value }}% on {{ $labels.mountpoint }}"
+
+      - alert: CriticalDiskUsage
+        expr: |
+          (1 - (node_filesystem_avail_bytes{fstype!="tmpfs",mountpoint!="/boot"} /
+                node_filesystem_size_bytes{fstype!="tmpfs",mountpoint!="/boot"})) * 100 > 90
+        for: 2m
+        labels:
+          severity: critical
+          security_source: prometheus
+        annotations:
+          summary: "Critical disk usage on {{ $labels.mountpoint }}"
+          description: "Disk usage is {{ $value }}% on {{ $labels.mountpoint }}"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}%"
+
+      - alert: CriticalMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          security_source: prometheus
+        annotations:
+          summary: "Critical memory usage"
+          description: "Memory usage is {{ $value }}%"
+
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}% for 10 minutes"
+
+      - alert: NodeDown
+        expr: up{job="node"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          security_source: prometheus
+        annotations:
+          summary: "node_exporter is down"
+          description: "node_exporter has been unreachable for 1 minute"
+
+      - alert: UnexpectedReboot
+        expr: |
+          (time() - node_boot_time_seconds) < 300
+        for: 1m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "System rebooted"
+          description: "System rebooted less than 5 minutes ago"
+
+      - alert: TimeSkew
+        expr: |
+          abs(node_time_seconds - time()) > 30
+        for: 1m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "System time is skewed"
+          description: "System time differs from Prometheus server by {{ $value }} seconds"
+
+      - alert: HighNetworkTraffic
+        expr: |
+          rate(node_network_receive_bytes_total[5m]) > 100000000
+        for: 5m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "High inbound network traffic"
+          description: "Receiving {{ $value | humanize }}bps on {{ $labels.device }}"
+
+      - alert: HighOutboundTraffic
+        expr: |
+          rate(node_network_transmit_bytes_total[5m]) > 50000000
+        for: 5m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "High outbound network traffic"
+          description: "Transmitting {{ $value | humanize }}bps on {{ $labels.device }}"
+
+      - alert: ProcessCountHigh
+        expr: |
+          node_processes_threads > 2000
+        for: 5m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "High process count"
+          description: "{{ $value }} threads running (threshold: 2000)"
+
+  # ---------------------------------------------------------------------------
+  # Group: Docker container security alerts
+  # ---------------------------------------------------------------------------
+  - name: container-security
+    interval: 15s
+    rules:
+      - alert: ContainerRestarting
+        expr: |
+          rate(container_last_seen{container_label_service!=""}[15m]) > 0
+          and
+          (time() - container_last_seen{container_label_service!=""}) < 300
+        for: 5m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "Container {{ $labels.container_label_com_docker_compose_service }} restarting"
+          description: "Container is restarting frequently"
+
+      - alert: ContainerHighMemory
+        expr: |
+          container_memory_usage_bytes{container_label_service!=""} > 500000000
+        for: 5m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "Container {{ $labels.container_label_com_docker_compose_service }} high memory"
+          description: "Memory usage is {{ $value | humanize }}"
+
+      - alert: ContainerHighCPU
+        expr: |
+          rate(container_cpu_usage_seconds_total{container_label_service!=""}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "Container {{ $labels.container_label_com_docker_compose_service }} high CPU"
+          description: "CPU usage is {{ $value | humanize }}"
+
+  # ---------------------------------------------------------------------------
+  # Group: Service availability alerts
+  # ---------------------------------------------------------------------------
+  - name: service-availability
+    interval: 15s
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          security_source: prometheus
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} target {{ $labels.instance }} has been down for 1 minute"
+
+      - alert: ServiceUnreachable
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: critical
+          security_source: prometheus
+        annotations:
+          summary: "Service {{ $labels.job }} unreachable"
+          description: "Service {{ $labels.job }} has been down for 5 minutes"
+
+  # ---------------------------------------------------------------------------
+  # Group: Prometheus self-monitoring
+  # ---------------------------------------------------------------------------
+  - name: prometheus-self
+    interval: 15s
+    rules:
+      - alert: PrometheusTargetMissing
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          security_source: prometheus
+        annotations:
+          summary: "Prometheus target {{ $labels.instance }} is missing"
+          description: "Target {{ $labels.job }}/{{ $labels.instance }} is unreachable"
+
+      - alert: PrometheusHighScrapeFailures
+        expr: |
+          rate(prometheus_target_interval_length_seconds_count[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          security_source: prometheus
+        annotations:
+          summary: "High Prometheus scrape failure rate"
+          description: "Scrape failure rate is {{ $value }}"{% endraw %}
+

@@ -1,0 +1,127 @@
+#
+# Prometheus Security Configuration
+#
+# WHY ENHANCED: The original config only scraped Syncthing, cAdvisor, and Traefik.
+# This enhanced config adds:
+#   1. node_exporter: Host-level metrics (CPU, RAM, disk, network)
+#   2. Alertmanager: For routing alerts (if deployed)
+#   3. Rule files: Separate security alerting and recording rules
+#   4. Better scrape intervals for security-relevant targets
+#
+# WHY node_exporter is critical for security:
+#   - node_filesystem_avail_bytes: Detect disk space exhaustion
+#   - node_network_receive_bytes_total: Detect traffic anomalies
+#   - node_processes_state: Detect fork bombs or process injection
+#   - node_time_seconds: Detect time skew (possible NTP tampering)
+#   - node_boot_time_seconds: Detect unexpected reboots
+#
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  # WHY 15s: Good balance between granularity and resource usage.
+  # For security alerts, 15s evaluation means we detect issues within 15s.
+
+# ---------------------------------------------------------------------------
+# Rule files
+# ---------------------------------------------------------------------------
+rule_files:
+  - /etc/prometheus/rules/security-alerts.yml
+  - /etc/prometheus/rules/security-recording.yml
+
+# ---------------------------------------------------------------------------
+# Alertmanager configuration
+# WHY: Alertmanager handles deduplication, grouping, and routing of alerts.
+# If deployed, we route alerts to Alertmanager for notification delivery.
+# If not deployed, Prometheus still evaluates rules but alerts remain pending.
+# ---------------------------------------------------------------------------
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            # Alertmanager is optional — comment out if not deployed
+            # - alertmanager:9093
+          labels:
+            service: alertmanager
+
+scrape_configs:
+  # ---------------------------------------------------------------------------
+  # Job: node_exporter (host metrics)
+  # WHY: Essential for VPS security and resource monitoring.
+  # node_exporter exposes a wealth of host-level metrics.
+  # ---------------------------------------------------------------------------
+  - job_name: node
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets:
+          - node-exporter:9100
+        labels:
+          service: node_exporter
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+
+  # ---------------------------------------------------------------------------
+  # Job: Syncthing (existing)
+  # ---------------------------------------------------------------------------
+  - job_name: syncthing
+    scrape_interval: 30s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets:
+          - syncthing:8384
+        labels:
+          service: syncthing
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+
+  # ---------------------------------------------------------------------------
+  # Job: cAdvisor (Docker container metrics — existing)
+  # ---------------------------------------------------------------------------
+  - job_name: cadvisor
+    scrape_interval: 30s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets:
+          - cadvisor:8080
+        labels:
+          service: cadvisor
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+
+  # ---------------------------------------------------------------------------
+  # Job: Traefik (reverse proxy metrics — existing)
+  # ---------------------------------------------------------------------------
+  - job_name: traefik
+    scrape_interval: 30s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets:
+          - traefik:8082
+        labels:
+          service: traefik
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+
+  # ---------------------------------------------------------------------------
+  # Job: Wazuh (if available)
+  # WHY: Wazuh exposes metrics via its API. We can scrape these if
+  # a Prometheus exporter is configured. Currently, Wazuh metrics
+  # are ingested via Loki (alerts). This is a placeholder for future use.
+  # ---------------------------------------------------------------------------
+  # - job_name: wazuh
+  #   scrape_interval: 60s
+  #   metrics_path: /metrics
+  #   scheme: https
+  #   static_configs:
+  #     - targets:
+  #         - wazuh-manager:55000
+  #       labels:
+  #         service: wazuh
+  #         host: {{ ansible_hostname | default(inventory_hostname) }}
+  #   tls_config:
+  #     insecure_skip_verify: true
+  #   basic_auth:
+  #     username: wazuh-wui
+  #     password: "{{ wazuh_api_password | default('') }}"
+

@@ -166,6 +166,7 @@ services:
       - -config.file=/etc/loki/loki-config.yml
     volumes:
       - {{ stack_dir }}/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - {{ stack_dir }}/loki/rules:/loki/rules:ro
       - loki_data:/loki
     networks:
       - internal
@@ -198,6 +199,7 @@ services:
       - --web.enable-lifecycle
     volumes:
       - {{ stack_dir }}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - {{ stack_dir }}/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     networks:
       - knowledge

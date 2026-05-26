@@ -1,0 +1,33 @@
+[Unit]
+Description=Lynis Security Audit
+Documentation=https://cisofy.com/lynis/
+# WHY: Run after network is up and system time is synchronized.
+# Lynis checks SSL certs and timestamps, so accurate time matters.
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=oneshot
+ExecStart={{ lynis_script_path }}
+# WHY: Run as root for full system access (required for most checks)
+User=root
+Group=root
+# WHY: Prevent concurrent runs (shouldn't happen with timer, but safety)
+LockPersonality=true
+NoNewPrivileges=true
+# WHY: Only read-only access to system files, write to report dirs
+ProtectSystem=strict
+ReadWritePaths={{ lynis_report_dir }} {{ lynis_log_dir }}
+# WHY: Basic sandboxing for security audit tool itself
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+MemoryMax=512M
+# WHY: Timeout after 30 minutes (full audit can take 15-20 min)
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target
+

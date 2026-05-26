@@ -1,0 +1,47 @@
+#
+# Lynis Custom Profile
+# WHY: Default Lynis profiles are very verbose. This custom profile focuses on
+# relevant security controls for a Docker VPS, skips irrelevant tests (like
+# hardware RAID, physical security), and sets custom warning levels.
+#
+# Profile location: /etc/lynis/custom.prf
+# Applied via: lynis audit system --profile /etc/lynis/custom.prf
+#
+
+# Security scan options
+# WHY: We want thorough scanning but skip hardware-level checks that don't
+# apply to a VPS environment (no physical access, no hardware RAID, etc.)
+skip-test=CUST-0001   # Skip physical security (not applicable to VPS)
+skip-test=BOOT-5122   # Skip boot loader password (single-user VPS, console not exposed)
+skip-test=LOGG-2130   # Skip syslog-ng specific checks (we use rsyslog)
+skip-test=PRNT-2307   # Skip printer checks (no printer connected)
+skip-test=PRNT-2308   # Skip printer checks
+skip-test=PRNT-2310   # Skip printer checks
+skip-test=PRNT-2311   # Skip printer checks
+skip-test=AUTH-9289   # Skip LDAP anonymous bind check (no LDAP)
+skip-test=DBK-1520    # Skip database checks (we handle DBs via Docker)
+skip-test=DBK-1522    # Skip database checks
+skip-test=DBK-1524    # Skip database checks
+skip-test=DBK-1526    # Skip database checks
+skip-test=DBK-1528    # Skip database checks
+skip-test=DBK-1530    # Skip database checks
+skip-test=DBK-1532    # Skip database checks
+skip-test=DBK-1534    # Skip database checks
+skip-test=DBK-1536    # Skip database checks
+skip-test=DBK-1538    # Skip database checks
+skip-test=DBK-1540    # Skip database checks
+skip-test=HRDN-7213   # Skip disk encryption (not applicable to cloud VPS)
+skip-test=HRDN-7222   # Skip disk encryption checks
+
+# Custom severity levels
+# WHY: Raise severity for Docker-specific security concerns
+# Lower severity for less critical items
+severity-custom=CUST-0001,low
+severity-custom=BOOT-5122,low
+severity-custom=PRNT-2307,low
+
+# Log and report settings
+report_tool_name="Lynis Security Audit"
+report_company_name="les12.fr"
+report_email_address="{{ email_admin }}"
+

@@ -1,0 +1,85 @@
+---
+# loki_security — Enhanced Loki/Promtail configuration for security monitoring
+#
+# WHY: The existing Promtail config is minimal (system + docker logs).
+# We need enhanced scraping for:
+#   1. Security-relevant log files with proper labels (auth.log, kern.log)
+#   2. Wazuh alerts via syslog
+#   3. Lynis audit results
+#   4. Docker container logs with security-focused relabeling
+#   5. Structured metadata for Grafana queries
+#
+# WHY NOT Grafana Alloy: Alloy is Grafana's new collector (replaces Promtail,
+# Grafana Agent, and Grafana Agent Flow). It's more powerful but also newer
+# and less battle-tested. Promtail is simpler and sufficient for our needs.
+# Migration path: If Alloy matures, swap Promtail for Alloy in the future.
+#
+# WHY NOT fluentd/fluentbit: More complex to configure, requires additional
+# plugins for Loki output. Promtail is purpose-built for Loki.
+
+- name: Ensure Promtail config directory exists
+  ansible.builtin.file:
+    path: "{{ stack_dir }}/promtail"
+    state: directory
+    mode: "0755"
+  tags:
+    - loki_security
+    - promtail
+
+- name: Render enhanced Promtail config for security logs
+  ansible.builtin.template:
+    src: promtail-security-config.yml.j2
+    dest: "{{ stack_dir }}/promtail/promtail-config.yml"
+    mode: "0644"
+  notify: Restart stack
+  tags:
+    - loki_security
+    - promtail
+
+- name: Ensure Loki config directory exists
+  ansible.builtin.file:
+    path: "{{ stack_dir }}/loki"
+    state: directory
+    mode: "0755"
+  tags:
+    - loki_security
+    - loki
+
+- name: Render enhanced Loki config with security retention
+  ansible.builtin.template:
+    src: loki-security-config.yml.j2
+    dest: "{{ stack_dir }}/loki/loki-config.yml"
+    mode: "0644"
+  notify: Restart stack
+  tags:
+    - loki_security
+    - loki
+
+- name: Create Loki rules directory for alerting
+  ansible.builtin.file:
+    path: "{{ stack_dir }}/loki/rules/fake"
+    state: directory
+    mode: "0755"
+  tags:
+    - loki_security
+    - loki
+
+- name: Deploy Loki alerting rules for security events
+  ansible.builtin.template:
+    src: loki-alerting-rules.yml.j2
+    dest: "{{ stack_dir }}/loki/rules/fake/security-alerts.yml"
+    mode: "0644"
+  tags:
+    - loki_security
+    - loki
+
+- name: Create Loki log retention and compaction configuration
+  ansible.builtin.shell:
+    cmd: |
+      mkdir -p {{ stack_dir }}/loki/rules/fake
+    creates: "{{ stack_dir }}/loki/rules/fake"
+  changed_when: false
+  tags:
+    - loki_security
+    - loki
+

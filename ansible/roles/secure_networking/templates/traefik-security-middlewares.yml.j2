@@ -1,0 +1,128 @@
+#
+# Traefik Security Middlewares
+#
+# WHY: The existing middlewares.yml handles Authelia auth. This file adds
+# security-focused middlewares for rate limiting, IP blocking, and headers.
+#
+# These middlewares are referenced by Traefik routers via labels in docker-compose.yml.
+# They are stored in /etc/traefik/dynamic/security.yml and loaded by Traefik's file provider.
+#
+
+http:
+  middlewares:
+    # ---------------------------------------------------------------------------
+    # Rate limiting middleware
+    # WHY: Prevent brute force attacks by limiting requests per IP.
+    # 100 requests per minute is generous for normal use but stops scanners.
+    # ---------------------------------------------------------------------------
+    rate-limit:
+      rateLimit:
+        period: 1m
+        average: 100
+        burst: 200
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # ---------------------------------------------------------------------------
+    # Strict rate limiting (for auth endpoints)
+    # WHY: Auth endpoints (login, token) need stricter limits.
+    # 10 requests per minute prevents password brute forcing.
+    # ---------------------------------------------------------------------------
+    rate-limit-strict:
+      rateLimit:
+        period: 1m
+        average: 10
+        burst: 20
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # ---------------------------------------------------------------------------
+    # Security headers middleware
+    # WHY: Add security headers to all responses.
+    # These help prevent common web attacks (XSS, clickjacking, MIME sniffing).
+    # ---------------------------------------------------------------------------
+    security-headers:
+      headers:
+        # Prevent MIME type sniffing
+        contentTypeNosniff: true
+        # Prevent clickjacking
+        frameDeny: true
+        # Enable XSS filter
+        browserXssFilter: true
+        # HSTS (1 year, include subdomains)
+        strictTransportSecurity: true
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        # Referrer policy
+        referrerPolicy: "strict-origin-when-cross-origin"
+        # Content Security Policy (basic)
+        contentSecurityPolicy: "default-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+        # Permissions Policy (restrict browser features)
+        permissionsPolicy: "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+        # Custom headers
+        customResponseHeaders:
+          X-Robots-Tag: "noindex, nofollow"
+          X-Powered-By: ""
+
+    # ---------------------------------------------------------------------------
+    # IP whitelist (internal services)
+    # WHY: Some services should only be accessible from specific IPs.
+    # Example: Traefik dashboard, Prometheus, etc.
+    # ---------------------------------------------------------------------------
+    internal-whitelist:
+      ipWhiteList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+          - "::1/128"
+          # WHY: Allow Docker internal networks and localhost.
+          # External access is blocked unless explicitly allowed.
+
+    # ---------------------------------------------------------------------------
+    # Compress middleware
+    # WHY: Enable compression for better performance.
+    # ---------------------------------------------------------------------------
+    compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+          - application/octet-stream
+
+    # ---------------------------------------------------------------------------
+    # Circuit breaker
+    # WHY: Prevent cascading failures by stopping requests to unhealthy backends.
+    # ---------------------------------------------------------------------------
+    circuit-breaker:
+      circuitBreaker:
+        expression: "NetworkErrorRatio() > 0.5"
+        checkPeriod: 10s
+        fallbackDuration: 30s
+        recoveryDuration: 10s
+
+    # ---------------------------------------------------------------------------
+    # Chain: Basic security (every service)
+    # WHY: Every service should have at least security headers and compression.
+    # ---------------------------------------------------------------------------
+    security-chain:
+      chain:
+        middlewares:
+          - security-headers
+          - compress
+          - rate-limit
+
+    # ---------------------------------------------------------------------------
+    # Chain: Strict security (auth endpoints)
+    # WHY: Auth endpoints need rate limiting, IP whitelist, and security headers.
+    # ---------------------------------------------------------------------------
+    auth-security-chain:
+      chain:
+        middlewares:
+          - security-headers
+          - rate-limit-strict
+          - circuit-breaker
+

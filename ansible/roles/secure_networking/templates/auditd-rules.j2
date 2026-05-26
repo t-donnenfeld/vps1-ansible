@@ -1,0 +1,110 @@
+#
+# Auditd Rules — System call auditing (optional)
+#
+# WHY: auditd provides detailed logging of system calls, file access,
+# and security events. It's more granular than syslog but also more
+# resource-intensive. Enable only if you need detailed audit trails.
+#
+# WHY OPTIONAL: auditd can generate significant log volume (~100MB/day
+# on an active system). For a personal VPS, Lynis + Wazuh + Prometheus
+# provide sufficient security coverage without auditd overhead.
+#
+# These rules focus on security-relevant events only:
+#   - File access to critical system files
+#   - User/group management
+#   - Network configuration changes
+#   - Process execution in sensitive directories
+#   - Time changes
+#   - Mount/unmount operations
+#
+
+# Delete all existing rules
+-D
+
+# Buffer size (512KB — sufficient for single VPS)
+-b 8192
+
+# Failure mode (1=silent, 2=printk)
+-f 1
+
+# ---------------------------------------------------------------------------
+# File access monitoring
+# WHY: Detect unauthorized access to critical system files.
+# ---------------------------------------------------------------------------
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/sudoers -p wa -k identity
+-w /etc/sudoers.d/ -p wa -k identity
+-w /etc/ssh/sshd_config -p wa -k sshd_config
+-w /etc/ssh/ssh_config -p wa -k ssh_config
+-w /etc/docker/daemon.json -p wa -k docker_config
+-w {{ stack_dir }} -p wa -k stack_config
+
+# ---------------------------------------------------------------------------
+# User/group management
+# WHY: Detect creation, deletion, or modification of users and groups.
+# ---------------------------------------------------------------------------
+-w /usr/sbin/useradd -p x -k useradd
+-w /usr/sbin/usermod -p x -k usermod
+-w /usr/sbin/userdel -p x -k userdel
+-w /usr/sbin/groupadd -p x -k groupadd
+-w /usr/sbin/groupmod -p x -k groupmod
+-w /usr/sbin/groupdel -p x -k groupdel
+
+# ---------------------------------------------------------------------------
+# Network configuration changes
+# WHY: Detect changes to network configuration (possible exfiltration).
+# ---------------------------------------------------------------------------
+-w /sbin/iptables -p x -k netfilter
+-w /sbin/ip6tables -p x -k netfilter
+-w /usr/sbin/ufw -p x -k ufw
+-w /etc/hosts -p wa -k hosts
+-w /etc/network/ -p wa -k network
+
+# ---------------------------------------------------------------------------
+# Time changes
+# WHY: Detect system time manipulation (possible log tampering).
+# ---------------------------------------------------------------------------
+-a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time-change
+-a always,exit -F arch=b32 -S adjtimex -S settimeofday -k time-change
+-a always,exit -F arch=b64 -S clock_settime -k time-change
+-a always,exit -F arch=b32 -S clock_settime -k time-change
+
+# ---------------------------------------------------------------------------
+# Mount/unmount operations
+# WHY: Detect filesystem mount operations (possible container escape).
+# ---------------------------------------------------------------------------
+-a always,exit -F arch=b64 -S mount -S umount2 -k mount
+-a always,exit -F arch=b32 -S mount -S umount2 -k mount
+
+# ---------------------------------------------------------------------------
+# Process execution monitoring
+# WHY: Detect execution of processes from sensitive directories.
+# ---------------------------------------------------------------------------
+-w /usr/bin/docker -p x -k docker-exec
+-w /usr/bin/docker-compose -p x -k docker-compose-exec
+-w /usr/bin/kubectl -p x -k kubectl-exec
+
+# ---------------------------------------------------------------------------
+# Module loading
+# WHY: Detect kernel module loading (possible rootkit installation).
+# ---------------------------------------------------------------------------
+-w /sbin/insmod -p x -k module-load
+-w /sbin/rmmod -p x -k module-load
+-w /sbin/modprobe -p x -k module-load
+-a always,exit -F arch=b64 -S init_module -S delete_module -k module-load
+-a always,exit -F arch=b32 -S init_module -S delete_module -k module-load
+
+# ---------------------------------------------------------------------------
+# Login/logout events
+# WHY: Track SSH and console login events.
+# ---------------------------------------------------------------------------
+-w /var/log/auth.log -p wa -k auth-log
+-w /var/log/btmp -p wa -k auth-log
+-w /var/log/wtmp -p wa -k auth-log
+-w /var/log/lastlog -p wa -k auth-log
+
+# Make the configuration immutable (requires reboot to change)
+# -e 2
+

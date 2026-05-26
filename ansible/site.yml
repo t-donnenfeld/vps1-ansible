@@ -37,3 +37,55 @@
     - import_role:
         name: openclaw_integration
       tags: openclaw_integration
+
+    # =========================================================================
+    # Cybersecurity & Observability Stack
+    # =========================================================================
+    # WHY: These roles add security monitoring, log analysis, vulnerability
+    # scanning, and enhanced observability to the existing infrastructure.
+    # They are designed to be modular and independently runnable via tags.
+    #
+    # Deployment order matters:
+    #   1. secure_networking: Docker security, UFW rules, Traefik middlewares
+    #   2. loki_security: Enhanced Promtail/Loki config for security logs
+    #   3. prometheus_security: node_exporter, alerting rules
+    #   4. grafana_security: Security dashboards
+    #   5. security_audit: Lynis installation and configuration
+    #   6. wazuh: Wazuh manager + optional agent
+    # =========================================================================
+
+    - import_role:
+        name: secure_networking
+      tags:
+        - secure_networking
+        - security
+
+    - import_role:
+        name: loki_security
+      tags:
+        - loki_security
+        - monitoring
+
+    - import_role:
+        name: prometheus_security
+      tags:
+        - prometheus_security
+        - monitoring
+
+    - import_role:
+        name: grafana_security
+      tags:
+        - grafana_security
+        - monitoring
+
+    - import_role:
+        name: security_audit
+      tags:
+        - security_audit
+        - lynis
+
+    - import_role:
+        name: wazuh
+      tags:
+        - wazuh
+        - security

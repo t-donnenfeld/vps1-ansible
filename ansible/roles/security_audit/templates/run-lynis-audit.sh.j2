@@ -1,0 +1,140 @@
+#!/bin/bash
+#
+# run-lynis-audit.sh — Run Lynis audit and push results to Loki
+#
+# WHY: This script:
+#   1. Runs Lynis with our custom profile
+#   2. Saves JSON report for trend analysis
+#   3. Pushes the JSON report to Loki for Grafana visualization
+#   4. Saves HTML report for manual review
+#   5. Cleans up reports older than retention period
+#
+# WHY JSON: Lynis --report-file --log-file produces JSON output that
+# includes the hardening index score, individual test results, and
+# warnings. This is parseable by Loki and queryable in Grafana.
+#
+# WHY push to Loki: Centralized logging allows us to visualize
+# security score trends over time, correlate with other events,
+# and set up alerts when the score drops below a threshold.
+#
+set -euo pipefail
+
+REPORT_DIR="{{ lynis_report_dir }}"
+LOG_DIR="{{ lynis_log_dir }}"
+CUSTOM_PROFILE="{{ lynis_custom_profile_dir }}/custom.prf"
+RETENTION_DAYS="{{ lynis_retention_days | default(90) }}"
+LOKI_URL="{{ loki_push_url | default('http://localhost:3100') }}"
+HOSTNAME="$(hostname)"
+TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
+REPORT_FILE="${REPORT_DIR}/lynis-report-${TIMESTAMP}.json"
+LOG_FILE="${LOG_DIR}/lynis-log-${TIMESTAMP}.txt"
+HTML_REPORT="${REPORT_DIR}/lynis-report-${TIMESTAMP}.html"
+
+# Ensure directories exist
+mkdir -p "${REPORT_DIR}" "${LOG_DIR}"
+
+# Run Lynis audit
+# WHY --quick: Skips some slower tests (like DNS, SSL cert checks) that
+# are already handled by other monitoring. Gives faster results.
+# Use without --quick for full audit on weekends if desired.
+echo "Running Lynis security audit..."
+lynis audit system \
+    --profile "${CUSTOM_PROFILE}" \
+    --report-file "${REPORT_FILE}" \
+    --log-file "${LOG_FILE}" \
+    --quick \
+    2>/dev/null || true
+
+# Generate HTML report from log file
+# WHY HTML: Useful for manual review to understand specific findings
+if [ -f "${LOG_FILE}" ]; then
+    lynis show report --logfile "${LOG_FILE}" > "${HTML_REPORT}" 2>/dev/null || true
+fi
+
+# Extract hardening score from JSON report for Loki push
+# WHY: We extract the hardening_index score and push it as a structured log line
+# to Loki. This allows us to track score trends over time in Grafana.
+if [ -f "${REPORT_FILE}" ]; then
+    # Extract key metrics using jq (installed via common role)
+    HARDENING_SCORE=$(jq -r '.hardening_index // empty' "${REPORT_FILE}" 2>/dev/null || echo "0")
+    WARNING_COUNT=$(jq '.warnings | length' "${REPORT_FILE}" 2>/dev/null || echo "0")
+    SUGGESTION_COUNT=$(jq '.suggestions | length' "${REPORT_FILE}" 2>/dev/null || echo "0")
+    TEST_COUNT=$(jq '.tests | length' "${REPORT_FILE}" 2>/dev/null || echo "0")
+
+    # Push structured audit summary to Loki
+    # WHY curl: Simple, no dependencies needed beyond what's already installed.
+    # The log line is structured JSON with labels for Loki querying.
+    LOKI_PAYLOAD=$(jq -n \
+        --arg host "${HOSTNAME}" \
+        --arg score "${HARDENING_SCORE}" \
+        --arg warnings "${WARNING_COUNT}" \
+        --arg suggestions "${SUGGESTION_COUNT}" \
+        --arg tests "${TEST_COUNT}" \
+        --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{
+            streams: [
+                {
+                    stream: {
+                        host: $host,
+                        job: "lynis-audit",
+                        security_source: "lynis",
+                        severity: "info"
+                    },
+                    values: [[($timestamp + "000000000"), ("HardeningScore=" + $score + " Warnings=" + $warnings + " Suggestions=" + $suggestions + " Tests=" + $tests)]]
+                }
+            ]
+        }')
+
+    # Push to Loki (best-effort, don't fail audit if Loki is down)
+    curl -s -X POST "${LOKI_URL}/loki/api/v1/push" \
+        -H "Content-Type: application/json" \
+        -d "${LOKI_PAYLOAD}" \
+        --connect-timeout 5 \
+        --max-time 10 \
+        >/dev/null 2>&1 || echo "Warning: Failed to push Lynis results to Loki"
+
+    # Also push the full report as a log line for detailed analysis
+    FULL_REPORT_SUMMARY=$(jq -c '{
+        hardening_index: .hardening_index,
+        warnings: [.warnings[]? | {test: .id, message: .message}] | unique,
+        suggestions: [.suggestions[]? | {test: .id, message: .message}] | unique,
+        tests_passed: [.tests[]? | select(.status == "passed")] | length,
+        tests_failed: [.tests[]? | select(.status == "failed")] | length
+    }' "${REPORT_FILE}" 2>/dev/null || echo "{}")
+
+    LOKI_DETAILED_PAYLOAD=$(jq -n \
+        --arg host "${HOSTNAME}" \
+        --argjson summary "${FULL_REPORT_SUMMARY}" \
+        --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{
+            streams: [
+                {
+                    stream: {
+                        host: $host,
+                        job: "lynis-audit",
+                        security_source: "lynis",
+                        severity: "info",
+                        type: "detailed"
+                    },
+                    values: [[($timestamp + "000000000"), ($summary | tostring)]]
+                }
+            ]
+        }')
+
+    curl -s -X POST "${LOKI_URL}/loki/api/v1/push" \
+        -H "Content-Type: application/json" \
+        -d "${LOKI_DETAILED_PAYLOAD}" \
+        --connect-timeout 5 \
+        --max-time 10 \
+        >/dev/null 2>&1 || true
+fi
+
+# Clean up old reports
+# WHY: Prevent disk fill. Lynis reports are small but accumulate over time.
+find "${REPORT_DIR}" -name "lynis-report-*.json" -type f -mtime +${RETENTION_DAYS} -delete 2>/dev/null || true
+find "${LOG_DIR}" -name "lynis-log-*.txt" -type f -mtime +${RETENTION_DAYS} -delete 2>/dev/null || true
+find "${REPORT_DIR}" -name "lynis-report-*.html" -type f -mtime +${RETENTION_DAYS} -delete 2>/dev/null || true
+
+echo "Lynis audit complete. Hardening score: ${HARDENING_SCORE:-N/A}"
+exit 0
+

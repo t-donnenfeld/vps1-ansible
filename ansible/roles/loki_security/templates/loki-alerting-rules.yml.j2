@@ -1,0 +1,154 @@
+{% raw %}# Loki Alerting Rules — Security Events
+#
+# WHY: Alert on security-relevant patterns detected in logs.
+# These rules are evaluated by Loki's ruler every 1 minute.
+# Alerts are sent to the Alertmanager (Prometheus) for routing.
+#
+# WHY IN LOKI: Some security events are easier to detect via log patterns
+# than via metrics. For example, SSH brute force is best detected by
+# counting "Failed password" lines in auth.log.
+#
+
+groups:
+  - name: security-auth
+    interval: 1m
+    rules:
+      - alert: SSHBrateForceDetected
+        expr: |
+          sum(count_over_time({job="system-auth"} |= "Failed password" [5m]))
+        for: 1m
+        labels:
+          severity: warning
+          security_source: system
+        annotations:
+          summary: "SSH brute force attack detected"
+          description: "{{ $value }} failed SSH password attempts in the last 5 minutes"
+
+      - alert: SSHBrateForceSustained
+        expr: |
+          sum(count_over_time({job="system-auth"} |= "Failed password" [15m]))
+        for: 1m
+        labels:
+          severity: critical
+          security_source: system
+        annotations:
+          summary: "Sustained SSH brute force attack"
+          description: "{{ $value }} failed SSH password attempts in the last 15 minutes"
+
+      - alert: SudoSccess
+        expr: |
+          sum(count_over_time({job="system-auth"} |= "sudo" |= "COMMAND" [1h]))
+        for: 1m
+        labels:
+          severity: info
+          security_source: system
+        annotations:
+          summary: "Sudo commands executed"
+          description: "{{ $value }} sudo commands executed in the last hour"
+
+  - name: security-wazuh
+    interval: 1m
+    rules:
+      - alert: WazuhHighSeverityAlert
+        expr: |
+          sum(count_over_time({job="wazuh-alerts"} | json | rule_level > 10 [15m]))
+        for: 1m
+        labels:
+          severity: critical
+          security_source: wazuh
+        annotations:
+          summary: "High-severity Wazuh alert"
+          description: "{{ $value }} high-severity Wazuh alerts in the last 15 minutes"
+
+      - alert: WazuhFIMChange
+        expr: |
+          sum(count_over_time({job="wazuh-alerts"} | json | rule_group="syscheck" [1h]))
+        for: 1m
+        labels:
+          severity: warning
+          security_source: wazuh
+        annotations:
+          summary: "File integrity change detected"
+          description: "{{ $value }} FIM alerts in the last hour"
+
+  - name: security-firewall
+    interval: 1m
+    rules:
+      - alert: UFWBlockedConnection
+        expr: |
+          sum(count_over_time({job="ufw-logs"} |= "BLOCK" [5m]))
+        for: 1m
+        labels:
+          severity: warning
+          security_source: firewall
+        annotations:
+          summary: "Firewall blocked connections"
+          description: "{{ $value }} blocked connection attempts in the last 5 minutes"
+
+      - alert: PortScanDetected
+        expr: |
+          sum(count_over_time({job="ufw-logs"} |= "BLOCK" [1m])) > 50
+        for: 1m
+        labels:
+          severity: critical
+          security_source: firewall
+        annotations:
+          summary: "Possible port scan detected"
+          description: "More than 50 blocked connections in 1 minute (possible port scan)"
+
+  - name: security-fail2ban
+    interval: 1m
+    rules:
+      - alert: Fail2banBans
+        expr: |
+          sum(count_over_time({job="fail2ban-logs"} |= "Ban" [1h]))
+        for: 1m
+        labels:
+          severity: warning
+          security_source: fail2ban
+        annotations:
+          summary: "IPs banned by fail2ban"
+          description: "{{ $value }} IPs banned in the last hour"
+
+  - name: security-traefik
+    interval: 1m
+    rules:
+      - alert: TraefikHighErrorRate
+        expr: |
+          (sum(count_over_time({job="traefik-access"} | json | status_code >= 500 [5m])) /
+           sum(count_over_time({job="traefik-access"} [5m]))) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+          security_source: traefik
+        annotations:
+          summary: "High Traefik error rate"
+          description: "Error rate is {{ $value }}% (threshold: 5%)"
+
+      - alert: TraefikAuthFailures
+        expr: |
+          sum(count_over_time({job="traefik-access"} | json | status_code = 401 [5m]))
+        for: 1m
+        labels:
+          severity: warning
+          security_source: traefik
+        annotations:
+          summary: "Authentication failures via Traefik"
+          description: "{{ $value }} 401 responses in the last 5 minutes"
+
+  - name: security-docker
+    interval: 1m
+    rules:
+      - alert: ContainerRestartLoop
+        expr: |
+          count by (container) (
+            count_over_time({job="docker"} |= "restart" [15m]) > 5
+          )
+        for: 2m
+        labels:
+          severity: warning
+          security_source: docker
+        annotations:
+          summary: "Container restart loop detected"
+          description: "Container {{ $labels.container }} has restarted {{ $value }} times in 15 minutes"{% endraw %}
+

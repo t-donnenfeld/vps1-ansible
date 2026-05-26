@@ -1,0 +1,164 @@
+---
+# grafana_security — Provision security-focused Grafana dashboards and datasources
+#
+# WHY: The existing Grafana setup has 3 dashboards (Syncthing, Docker Containers, Traefik).
+# We need additional dashboards for security monitoring:
+#   1. VPS Security Overview — Single pane of glass for all security metrics
+#   2. SSH Attack Monitor — Track brute-force attempts, banned IPs
+#   3. Wazuh Alerts — Wazuh security alert trends and details
+#   4. Lynis Audit Trends — Hardening score over time
+#   5. Auth Failures — Authentication failures across all services
+#   6. Container Activity — Docker container security events
+#   7. Traefik Access Anomalies — Unusual HTTP request patterns
+#
+# WHY PROVISIONING-AS-CODE: Dashboards are defined in JSON and provisioned
+# automatically by Grafana on startup. This ensures:
+#   - Dashboards are version-controlled
+#   - Dashboards survive Grafana resets
+#   - No manual import needed
+#   - Consistent across deployments
+
+- name: Create Grafana security directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ stack_dir }}/grafana/provisioning/dashboards/security"
+    - "{{ stack_dir }}/grafana/dashboards/security"
+  tags:
+    - grafana_security
+
+- name: Render Grafana dashboard provisioning config for security folder
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/grafana/provisioning/dashboards/security.yml"
+    content: |
+      apiVersion: 1
+
+      providers:
+        - name: "security"
+          orgId: 1
+          folder: "Security"
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /etc/grafana/dashboards/security
+    mode: "0644"
+  notify: Restart stack
+  tags:
+    - grafana_security
+
+- name: Deploy VPS Security Overview dashboard
+  ansible.builtin.copy:
+    src: dashboards/vps-security-overview.json
+    dest: "{{ stack_dir }}/grafana/dashboards/security/vps-security-overview.json"
+    mode: "0644"
+  tags:
+    - grafana_security
+
+- name: Deploy SSH Attack Monitor dashboard
+  ansible.builtin.copy:
+    src: dashboards/ssh-attack-monitor.json
+    dest: "{{ stack_dir }}/grafana/dashboards/security/ssh-attack-monitor.json"
+    mode: "0644"
+  tags:
+    - grafana_security
+
+- name: Deploy Wazuh Alerts dashboard
+  ansible.builtin.copy:
+    src: dashboards/wazuh-alerts.json
+    dest: "{{ stack_dir }}/grafana/dashboards/security/wazuh-alerts.json"
+    mode: "0644"
+  tags:
+    - grafana_security
+
+- name: Deploy Lynis Audit Trends dashboard
+  ansible.builtin.copy:
+    src: dashboards/lynis-audit-trends.json
+    dest: "{{ stack_dir }}/grafana/dashboards/security/lynis-audit-trends.json"
+    mode: "0644"
+  tags:
+    - grafana_security
+
+- name: Deploy Auth Failures dashboard
+  ansible.builtin.copy:
+    src: dashboards/auth-failures.json
+    dest: "{{ stack_dir }}/grafana/dashboards/security/auth-failures.json"
+    mode: "0644"
+  tags:
+    - grafana_security
+
+- name: Deploy Container Security dashboard
+  ansible.builtin.copy:
+    src: dashboards/container-security.json
+    dest: "{{ stack_dir }}/grafana/dashboards/security/container-security.json"
+    mode: "0644"
+  tags:
+    - grafana_security
+
+- name: Deploy Traefik Access Anomalies dashboard
+  ansible.builtin.copy:
+    src: dashboards/traefik-access-anomalies.json
+    dest: "{{ stack_dir }}/grafana/dashboards/security/traefik-access-anomalies.json"
+    mode: "0644"
+  tags:
+    - grafana_security
+
+- name: Ensure existing dashboard provisioning includes default folder
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/grafana/provisioning/dashboards/dashboards.yml"
+    content: |
+      apiVersion: 1
+
+      providers:
+        - name: "default"
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /etc/grafana/dashboards
+    mode: "0644"
+  tags:
+    - grafana_security
+
+- name: Render Prometheus datasource provisioning (ensure it exists)
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/grafana/provisioning/datasources/prometheus.yml"
+    content: |
+      apiVersion: 1
+
+      datasources:
+        - name: Prometheus
+          uid: prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus:9090
+          isDefault: false
+          editable: true
+    mode: "0644"
+  tags:
+    - grafana_security
+
+- name: Render Loki datasource provisioning (ensure it exists)
+  ansible.builtin.copy:
+    content: |
+      apiVersion: 1
+
+      datasources:
+        - name: Loki
+          uid: loki
+          type: loki
+          access: proxy
+          url: http://loki:3100
+          isDefault: true
+          editable: false
+          jsonData:
+            maxLines: 1000
+    dest: "{{ stack_dir }}/grafana/provisioning/datasources/loki.yml"
+    mode: "0644"
+  tags:
+    - grafana_security
+

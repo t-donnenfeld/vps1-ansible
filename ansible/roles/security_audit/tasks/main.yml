@@ -1,0 +1,119 @@
+---
+# security_audit — Automated Lynis security audits
+#
+# WHY: Lynis is a battle-tested security auditing tool for Unix/Linux systems.
+# It performs hundreds of individual security checks (controls) across categories
+# like authentication, networking, storage, and software. Running it regularly
+# gives us a baseline security score and trend over time.
+#
+# WHY NOT OpenSCAP: OpenSCAP is more comprehensive but requires SCAP content
+# updates and is significantly heavier. Lynis is simpler, faster, and sufficient
+# for a single VPS. It also has better JSON output for log ingestion.
+#
+# WHY NOT Wazuh agent for auditing: Wazuh has its own FIM (File Integrity Monitoring)
+# and CIS benchmark checks, but Lynis provides a simpler independent audit layer
+# with a single numeric score that's easy to track over time.
+#
+# Audit schedule: Daily at 03:00 (before backup at 04:00)
+# Reports: JSON format for Loki ingestion, HTML for manual review
+# Retention: 90 days of audit reports
+
+- name: Install Lynis
+  ansible.builtin.apt:
+    name: lynis
+    state: present
+    update_cache: false
+    # WHY: Lynis is in the official Debian/Ubuntu repos. No need for third-party repos.
+    # Version in repos may lag slightly behind upstream, but for our purposes this is fine.
+    # For latest version, use: apt list -a lynis to check available versions.
+  tags:
+    - security_audit
+    - lynis
+
+- name: Create Lynis audit directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0750"
+    owner: root
+    group: root
+  loop:
+    - "{{ lynis_report_dir }}"
+    - "{{ lynis_log_dir }}"
+    - "{{ lynis_custom_profile_dir }}"
+  tags:
+    - security_audit
+    - lynis
+
+- name: Create Lynis custom profile
+  ansible.builtin.template:
+    src: custom-profile.prf.j2
+    dest: "{{ lynis_custom_profile_dir }}/custom.prf"
+    mode: "0644"
+    owner: root
+    group: root
+  tags:
+    - security_audit
+    - lynis
+
+- name: Deploy Lynis audit script
+  ansible.builtin.template:
+    src: run-lynis-audit.sh.j2
+    dest: "{{ lynis_script_path }}"
+    mode: "0750"
+    owner: root
+    group: root
+  tags:
+    - security_audit
+    - lynis
+
+- name: Install systemd timer for daily Lynis audits
+  ansible.builtin.template:
+    src: lynis-audit.service.j2
+    dest: /etc/systemd/system/lynis-audit.service
+    mode: "0644"
+  tags:
+    - security_audit
+    - lynis
+
+- name: Install systemd timer for daily Lynis audits
+  ansible.builtin.template:
+    src: lynis-audit.timer.j2
+    dest: /etc/systemd/system/lynis-audit.timer
+    mode: "0644"
+  tags:
+    - security_audit
+    - lynis
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  tags:
+    - security_audit
+    - lynis
+
+- name: Enable and start Lynis audit timer
+  ansible.builtin.systemd:
+    name: lynis-audit.timer
+    state: started
+    enabled: true
+  tags:
+    - security_audit
+    - lynis
+
+- name: Run initial Lynis audit (tagged for skip on re-runs)
+  ansible.builtin.command:
+    cmd: "{{ lynis_script_path }}"
+  args:
+    creates: "{{ lynis_report_dir }}/lynis-report-initial.json"
+    # WHY: creates= ensures we only run once. On subsequent runs, the timer handles it.
+    # This avoids slow initial runs on every playbook execution.
+  register: lynis_initial_run
+  changed_when: lynis_initial_run.rc == 0
+  failed_when: false
+  tags:
+    - security_audit
+    - lynis
+    - initial-audit
+  when: run_initial_audit | default(true)
+

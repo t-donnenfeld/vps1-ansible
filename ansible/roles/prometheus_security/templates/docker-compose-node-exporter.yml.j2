@@ -1,0 +1,87 @@
+#
+# node_exporter Docker Compose
+#
+# WHY: node_exporter runs as a Docker container (not on the host directly)
+# to keep the host clean and manageable via Docker Compose.
+# It accesses host metrics via bind mounts.
+#
+# WHY NOT HOST INSTALLATION: Installing node_exporter directly on the host
+# would require additional package management. Docker deployment is simpler
+# and follows the existing pattern.
+#
+
+services:
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    hostname: node-exporter
+    restart: unless-stopped
+    # WHY unless-stopped: Survives Docker daemon restarts.
+    command:
+      - '--path.rootfs=/host'
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.netdev.device-exclude=^(veth|docker|br-)'
+      # WHY exclude veth/docker/br-: These are Docker internal interfaces.
+      # They create noise in network metrics. We only care about the real
+      # network interface (eth0 or ens*).
+      - '--no-collector.arp'
+      - '--no-collector.bcache'
+      - '--no-collector.edac'
+      - '--no-collector.entropy'
+      - '--no-collector.fibrechannel'
+      - '--no-collector.hwmon'
+      - '--no-collector.infiniband'
+      - '--no-collector.ipvs'
+      - '--no-collector.mdadm'
+      - '--no-collector.nfs'
+      - '--no-collector.nfsd'
+      - '--no-collector.pressure'
+      - '--no-collector.schedstat'
+      - '--no-collector.selinux'
+      - '--no-collector.sockstat'
+      - '--no-collector.tapestats'
+      - '--no-collector.textfile'
+      - '--no-collector.thermal_zone'
+      - '--no-collector.time'
+      - '--no-collector.timex'
+      - '--no-collector.uname'
+      - '--no-collector.vmstat'
+      - '--no-collector.wifi'
+      - '--no-collector.xfs'
+      - '--no-collector.zfs'
+      # WHY disabled collectors: These are not relevant for a VPS or
+      # consume too many resources. We enable only what we need:
+      # CPU, memory, disk, network, processes, loadavg, filesystem.
+    volumes:
+      - /:/host:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      # WHY bind mounts: node_exporter needs access to host /proc, /sys,
+      # and root filesystem to collect metrics. These are standard mounts.
+    pid: host
+    # WHY pid_mode=host: Required for process monitoring (counting processes,
+    # checking process states). Without this, node_exporter can only see
+    # processes in its own PID namespace.
+    networks:
+      - stack_knowledge
+      # WHY stack_knowledge: Prometheus is on this network and scrapes
+      # node_exporter on port 9100.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+        # WHY resource limits: node_exporter is lightweight but we limit
+        # it to prevent resource exhaustion in edge cases.
+
+networks:
+  stack_knowledge:
+    external: true
+

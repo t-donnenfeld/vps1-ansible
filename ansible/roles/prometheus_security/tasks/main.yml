@@ -1,0 +1,103 @@
+---
+# prometheus_security — Enhanced Prometheus configuration for security monitoring
+#
+# WHY: The existing Prometheus config scrapes only 3 targets (Syncthing, cAdvisor, Traefik).
+# We need additional targets for security monitoring:
+#   1. node_exporter: Host-level metrics (CPU, RAM, disk, network, processes)
+#   2. Wazuh exporter: Wazuh metrics (alerts count, agents status)
+#   3. Enhanced alerting rules for security events
+#   4. Recording rules for security dashboards
+#
+# WHY node_exporter: Essential for VPS security monitoring:
+#   - Disk usage alerts (prevent DoS from full disk)
+#   - Network traffic anomalies (possible data exfiltration)
+#   - Process monitoring (unusual processes)
+#   - System uptime (unexpected reboots)
+#
+# WHY NOT Wazuh exporter: Wazuh has a Prometheus exporter but it's not
+# officially supported and adds complexity. Instead, we query Wazuh API
+# from Grafana or use Loki-stored Wazuh alerts for metrics.
+
+- name: Create Prometheus rules directory
+  ansible.builtin.file:
+    path: "{{ stack_dir }}/prometheus/rules"
+    state: directory
+    mode: "0755"
+  tags:
+    - prometheus_security
+
+- name: Render enhanced Prometheus config with node_exporter
+  ansible.builtin.template:
+    src: prometheus-security.yml.j2
+    dest: "{{ stack_dir }}/prometheus/prometheus.yml"
+    mode: "0644"
+  notify: Restart stack
+  tags:
+    - prometheus_security
+
+- name: Render Prometheus security alerting rules
+  ansible.builtin.template:
+    src: prometheus-security-alerts.yml.j2
+    dest: "{{ stack_dir }}/prometheus/rules/security-alerts.yml"
+    mode: "0644"
+  notify: Restart stack
+  tags:
+    - prometheus_security
+
+- name: Render Prometheus recording rules for security dashboards
+  ansible.builtin.template:
+    src: prometheus-security-recording.yml.j2
+    dest: "{{ stack_dir }}/prometheus/rules/security-recording.yml"
+    mode: "0644"
+  notify: Restart stack
+  tags:
+    - prometheus_security
+
+- name: Deploy node_exporter as Docker container
+  ansible.builtin.template:
+    src: docker-compose-node-exporter.yml.j2
+    dest: "{{ stack_dir }}/prometheus/docker-compose-node-exporter.yml"
+    mode: "0644"
+  tags:
+    - prometheus_security
+    - node_exporter
+
+- name: Check if node_exporter is already running
+  ansible.builtin.shell:
+    cmd: docker ps --filter name=node-exporter --format '{{ '{{.Names}}' }}'
+  register: node_exporter_running
+  changed_when: false
+  tags:
+    - prometheus_security
+    - node_exporter
+
+- name: Deploy node_exporter container
+  ansible.builtin.shell:
+    cmd: |
+      cd {{ stack_dir }}/prometheus && docker compose -f docker-compose-node-exporter.yml up -d
+  when: node_exporter_running.stdout | length == 0
+  register: node_exporter_deploy
+  changed_when: node_exporter_deploy.rc == 0
+  tags:
+    - prometheus_security
+    - node_exporter
+
+- name: Add node_exporter to stack network
+  ansible.builtin.shell:
+    cmd: |
+      docker network connect knowledge node-exporter 2>/dev/null || true
+  changed_when: false
+  tags:
+    - prometheus_security
+    - node_exporter
+
+- name: Reload Prometheus configuration
+  ansible.builtin.uri:
+    url: http://localhost:9090/-/reload
+    method: POST
+  register: prometheus_reload
+  changed_when: prometheus_reload.status == 200
+  failed_when: false
+  tags:
+    - prometheus_security
+

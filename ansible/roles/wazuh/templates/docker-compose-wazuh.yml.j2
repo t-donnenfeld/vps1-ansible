@@ -1,0 +1,96 @@
+#
+# Wazuh Manager Docker Compose
+#
+# WHY: Single-container Wazuh manager. No indexer, no dashboard.
+# Alerts are forwarded to Loki via syslog (UDP 514) for visualization in Grafana.
+#
+# WHY NOT docker-compose.yml in main stack: Wazuh is optional and has
+# different lifecycle requirements. Keeping it separate avoids complicating
+# the main stack's restart policy.
+#
+# WHY SINGLE CONTAINER: The official wazuh/wazuh-manager image bundles
+# the manager, API, and filebeat (for forwarding). We don't need filebeat
+# since we forward to Loki directly via syslog.
+#
+
+services:
+  wazuh-manager:
+    image: "{{ wazuh_manager_image | default('wazuh/wazuh-manager:4.9.2') }}"
+    container_name: wazuh-manager
+    hostname: wazuh-manager
+    restart: unless-stopped
+    # WHY unless-stopped: Survives Docker daemon restarts but allows manual stop.
+    ports:
+      # Wazuh agent communication (TCP)
+      - "1514:1514/tcp"
+      - "1514:1514/udp"
+      # Wazuh API (REST)
+      - "55000:55000/tcp"
+      # Syslog output for Loki (UDP 514 on host)
+      - "514:514/udp"
+      # WHY UDP 514: Standard syslog port. Promtail on host reads from
+      # /var/log/syslog or we configure a dedicated syslog input.
+    volumes:
+      - {{ stack_dir }}/wazuh/config/ossec.conf:/var/ossec/etc/ossec.conf:ro
+      - {{ stack_dir }}/wazuh/logs:/var/ossec/logs:rw
+      - {{ stack_dir }}/wazuh/data:/var/ossec/data:rw
+      - wazuh_queue:/var/ossec/queue
+      - wazuh_stats:/var/ossec/stats
+      - /var/log:/hostlogs:ro
+      # WHY /var/log mount: Allows Wazuh to read host logs directly
+      # for analysis alongside agent logs.
+    environment:
+      - WAZUH_MANAGER_NAME=wazuh-manager
+      - TZ={{ timezone | default('Europe/Paris') }}
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+      - NET_ADMIN
+      - NET_RAW
+      # WHY cap_add: Wazuh needs these for rootkit detection, process monitoring,
+      # and network analysis. These are standard for Wazuh containers.
+      # Tradeoff: Expanded container capabilities, but Wazuh is a trusted security tool.
+    security_opt:
+      - seccomp=unconfined
+      # WHY seccomp=unconfined: Required for Wazuh's syscall monitoring.
+      # This is a necessary evil for security tools that need system-level visibility.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "https://localhost:55000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+      # WHY HTTPS: Wazuh API uses self-signed cert by default.
+    networks:
+      - wazuh_network
+      - stack_knowledge
+      # WHY stack_knowledge: Allows Wazuh to be reached by other services
+      # (e.g., OpenClaw can query Wazuh API for security context).
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: "{{ wazuh_manager_memory_limit | default('1g') }}"
+          cpus: "{{ wazuh_manager_cpu_limit | default('1.0') }}"
+        reservations:
+          memory: "{{ wazuh_manager_memory_reservation | default('512m') }}"
+
+volumes:
+  wazuh_queue:
+  wazuh_stats:
+
+networks:
+  wazuh_network:
+    driver: bridge
+    internal: true
+    # WHY internal: Wazuh management network should not have external access.
+    # Only the manager container is on this network.
+  stack_knowledge:
+    external: true
+    # WHY external: Reuse the main stack's knowledge network for service-to-service
+    # communication (OpenClaw, Grafana, etc.).
+

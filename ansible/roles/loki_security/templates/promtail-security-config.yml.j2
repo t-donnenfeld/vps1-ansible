@@ -1,0 +1,330 @@
+#
+# Promtail Security Configuration
+#
+# WHY ENHANCED: The original config only scraped /var/log/**/*.log and Docker logs.
+# This enhanced config adds:
+#   1. Structured pipeline stages for security log parsing
+#   2. Proper labels: host, service, severity, container, security_source
+#   3. Multi-job scraping for different log types
+#   4. Wazuh syslog alert ingestion
+#   5. Lynis audit log ingestion
+#   6. Docker log enrichment with container metadata
+#
+# WHY PIPELINE STAGES: Promtail's pipeline stages allow us to parse,
+# transform, and label log entries before sending them to Loki.
+# This makes queries in Grafana much more efficient.
+#
+
+server:
+  http_listen_port: 9080
+  log_level: info
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # ---------------------------------------------------------------------------
+  # Job: System logs (auth, syslog, kern, daemon)
+  # WHY: These are the primary security-relevant log files on any Linux system.
+  # auth.log: SSH logins, sudo, PAM failures
+  # kern.log: Kernel messages (OOM, firewall drops)
+  # syslog: General system events
+  # ---------------------------------------------------------------------------
+  - job_name: system-auth
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: system-auth
+          __path__: /var/log/auth.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: system
+    pipeline_stages:
+      - regex:
+          # Parse common auth log formats
+          # Example: "Mar 15 10:30:45 hostname sshd[12345]: Failed password for root from 192.168.1.1 port 22 ssh2"
+          expression: >-
+            ^(?P<timestamp>\w+\s+\d+\s+\d+:\d+:\d+)\s+
+            (?P<log_host>\S+)\s+
+            (?P<service>\S+)\[(?P<pid>\d+)\]:\s+
+            (?P<message>.*)$
+      - labels:
+          service:
+          severity:
+      - template:
+          source: severity
+          template: {% raw %}'{{ "info" }}'{% endraw %}
+      - match:
+          selector: '{message=~".*Failed.*"}'
+          stages:
+            - template:
+                source: severity
+                template: {% raw %}'{{ "warning" }}'{% endraw %}
+
+  - job_name: system-syslog
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: system-syslog
+          __path__: /var/log/syslog
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: system
+    pipeline_stages:
+      - regex:
+          expression: >-
+            ^(?P<timestamp>\w+\s+\d+\s+\d+:\d+:\d+)\s+
+            (?P<log_host>\S+)\s+
+            (?P<service>\S+)(?:\[(?P<pid>\d+)\])?:\s+
+            (?P<message>.*)$
+      - labels:
+          service:
+
+  - job_name: system-kern
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: system-kern
+          __path__: /var/log/kern.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: system
+
+  - job_name: system-daemon
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: system-daemon
+          __path__: /var/log/daemon.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: system
+
+  - job_name: system-dpkg
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: system-dpkg
+          __path__: /var/log/dpkg.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: system
+
+  # ---------------------------------------------------------------------------
+  # Job: All system logs (catch-all for /var/log)
+  # WHY: Catch any log files not explicitly listed above.
+  # ---------------------------------------------------------------------------
+  - job_name: system-all
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: system-all
+          __path__: /var/log/**/*.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: system
+    # Exclude files we already scrape explicitly to avoid duplicates
+    pipeline_stages:
+      - drop:
+          source: __path__
+          value: /var/log/auth.log
+      - drop:
+          source: __path__
+          value: /var/log/syslog
+      - drop:
+          source: __path__
+          value: /var/log/kern.log
+      - drop:
+          source: __path__
+          value: /var/log/daemon.log
+      - drop:
+          source: __path__
+          value: /var/log/dpkg.log
+
+  # ---------------------------------------------------------------------------
+  # Job: Docker container logs
+  # WHY: Container logs contain application-level security events.
+  # The docker pipeline stage automatically extracts container metadata.
+  # ---------------------------------------------------------------------------
+  - job_name: docker-containers
+    pipeline_stages:
+      - docker: {}
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          __path__: /var/lib/docker/containers/*/*-json.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: docker
+    # WHY: Relabel to extract container name from Docker log path.
+    # The path format is: /var/lib/docker/containers/<container_id>/<container_id>-json.log
+    # Docker pipeline stage already adds container_name label from container labels.
+    relabel_configs:
+      - source_labels:
+          - __meta_docker_container_name
+        target_label: container
+        regex: '/(.*)'
+        replacement: '${1}'
+
+  # ---------------------------------------------------------------------------
+  # Job: Wazuh alerts (syslog output)
+  # WHY: Wazuh manager forwards alerts to syslog (UDP 514) on localhost.
+  # Promtail reads from /var/log/syslog which captures these, but we also
+  # add a dedicated job for Wazuh's JSON alert file for structured parsing.
+  # ---------------------------------------------------------------------------
+  - job_name: wazuh-alerts
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: wazuh-alerts
+          __path__: {{ stack_dir }}/wazuh/logs/alerts/alerts.json
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: wazuh
+    pipeline_stages:
+      - json:
+          expressions:
+            rule_level: rule.level
+            rule_description: rule.description
+            agent_name: agent.name
+            agent_id: agent.id
+            location: location
+            timestamp: timestamp
+            full_log: full_log
+      - labels:
+          rule_level:
+          agent_name:
+          location:
+      - template:
+          source: severity
+          template: {% raw %}'{{ "critical" if .rule_level | int >= 12 else "high" if .rule_level | int >= 10 else "medium" if .rule_level | int >= 7 else "low" if .rule_level | int >= 5 else "info" }}'{% endraw %}
+      - labels:
+          severity:
+    # WHY: Only read the alerts file, not the full JSON logs.
+    # Wazuh also writes to /var/ossec/logs/alerts/alerts.json inside the container,
+    # but we mount {{ stack_dir }}/wazuh/logs to access it from the host.
+
+  # ---------------------------------------------------------------------------
+  # Job: Lynis audit results
+  # WHY: Lynis pushes results to Loki via curl in the audit script.
+  # This job is a fallback that reads the JSON report file if available.
+  # ---------------------------------------------------------------------------
+  - job_name: lynis-audit
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: lynis-audit
+          __path__: {{ lynis_report_dir }}/lynis-report-*.json
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: lynis
+    pipeline_stages:
+      - json:
+          expressions:
+            hardening_index: hardening_index
+            warnings_count: warnings_count
+            suggestions_count: suggestions_count
+            tests_count: tests_count
+      - labels:
+          hardening_index:
+
+  # ---------------------------------------------------------------------------
+  # Job: UFW logs
+  # WHY: UFW (Uncomplicated Firewall) logs blocked connection attempts.
+  # These are essential for detecting port scans and unauthorized access.
+  # ---------------------------------------------------------------------------
+  - job_name: ufw-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: ufw-logs
+          __path__: /var/log/ufw.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: firewall
+    pipeline_stages:
+      - regex:
+          expression: >-
+            ^.*UFW BLOCK.*SRC=(?P<src_ip>\S+).*DST=(?P<dst_ip>\S+).*DPT=(?P<dst_port>\d+).*PROTO=(?P<protocol>\S+)
+      - labels:
+          src_ip:
+          dst_port:
+          protocol:
+
+  # ---------------------------------------------------------------------------
+  # Job: fail2ban logs
+  # WHY: fail2ban bans IPs after repeated auth failures.
+  # Monitoring these helps track SSH brute-force attempts.
+  # ---------------------------------------------------------------------------
+  - job_name: fail2ban-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: fail2ban-logs
+          __path__: /var/log/fail2ban.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: fail2ban
+    pipeline_stages:
+      - regex:
+          expression: >-
+            ^.*(?P<action>Ban|Unban)\s+(?P<ip>\d+\.\d+\.\d+\.\d+)
+      - labels:
+          action:
+          ip:
+
+  # ---------------------------------------------------------------------------
+  # Job: Docker daemon logs
+  # WHY: Docker daemon logs contain security-relevant events like
+  # container starts/stops, network creations, and volume mounts.
+  # ---------------------------------------------------------------------------
+  - job_name: docker-daemon
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker-daemon
+          __path__: /var/log/docker.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: docker
+    # Docker daemon logs are often empty if journald is used.
+    # This is a best-effort scrape.
+
+  # ---------------------------------------------------------------------------
+  # Job: Traefik access logs
+  # WHY: Traefik access logs show all HTTP requests hitting our services.
+  # Security-relevant: 401s, 403s, unusual paths, scanning attempts.
+  # Note: Traefik access logs must be enabled in traefik.yml.
+  # ---------------------------------------------------------------------------
+  - job_name: traefik-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: traefik-access
+          __path__: {{ stack_dir }}/traefik/logs/access.log
+          host: {{ ansible_hostname | default(inventory_hostname) }}
+          security_source: traefik
+    pipeline_stages:
+      - regex:
+          expression: >-
+            ^(?P<client_ip>\S+)\s+-\s+-\s+\[(?P<timestamp>[^\]]+)\]\s+
+            "(?P<method>\S+)\s+(?P<path>\S+)\s+\S+"\s+
+            (?P<status_code>\d+)\s+
+            (?P<body_bytes>\d+)\s+
+            "(?P<referer>[^"]*)"\s+
+            "(?P<user_agent>[^"]*)"
+      - labels:
+          method:
+          status_code:
+          path:
+      - template:
+          source: severity
+          template: {% raw %}'{{ "critical" if .status_code | int >= 500 else "warning" if .status_code | int >= 400 else "info" }}'{% endraw %}
+      - labels:
+          severity:
+

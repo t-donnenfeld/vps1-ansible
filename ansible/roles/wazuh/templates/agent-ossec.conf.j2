@@ -1,0 +1,122 @@
+#
+# Wazuh Agent Configuration — ossec.conf
+# Used both for:
+#   1. Host agent installation (/var/ossec/etc/ossec.conf)
+#   2. Docker agent config template ({{ stack_dir }}/wazuh/agent/ossec.conf)
+#
+# WHY: The agent runs on the host (not in Docker) for full system access.
+# It reports to the local Wazuh manager.
+#
+
+<ossec_config>
+  <client>
+    <server>
+      <address>127.0.0.1</address>
+      <port>1514</port>
+      <protocol>tcp</protocol>
+    </server>
+    <!-- WHY: Connect to localhost. Manager is running in Docker but
+         port 1514 is mapped to host. -->
+    <notify_time>10</notify_time>
+    <time-reconnect>60</time-reconnect>
+    <auto_restart>yes</auto_restart>
+    <crypto_method>aes</crypto_method>
+  </client>
+
+  <!--
+    File Integrity Monitoring (same as manager config)
+    WHY: Agent-side FIM provides real-time file monitoring.
+  -->
+  <syscheck>
+    <disabled>no</disabled>
+    <frequency>3600</frequency>
+    <directories check_all="yes" realtime="yes">/etc</directories>
+    <directories check_all="yes" realtime="yes">/bin</directories>
+    <directories check_all="yes" realtime="yes">/sbin</directories>
+    <directories check_all="yes" realtime="yes">/usr/bin</directories>
+    <directories check_all="yes" realtime="yes">/usr/sbin</directories>
+    <directories check_all="yes" realtime="yes">{{ stack_dir }}</directories>
+    <directories check_all="yes" realtime="yes">/etc/docker</directories>
+    <directories check_all="yes" realtime="yes">/etc/ssh</directories>
+    <directories check_all="yes" realtime="yes">/etc/systemd</directories>
+    <ignore>/etc/hostname</ignore>
+    <ignore>/etc/hosts</ignore>
+    <ignore>/etc/mtab</ignore>
+    <ignore>/etc/adjtime</ignore>
+    <ignore>/etc/machine-id</ignore>
+    <ignore>/etc/resolv.conf</ignore>
+    <ignore>/var/log</ignore>
+    <max_eps>100</max_eps>
+    <scan_timeout>1800</scan_timeout>
+    <skip_nfs>yes</skip_nfs>
+    <skip_dev>yes</skip_dev>
+    <skip_proc>yes</skip_proc>
+    <skip_sys>yes</skip_sys>
+    <windows_registry_interval>never</windows_registry_interval>
+  </syscheck>
+
+  <!--
+    Rootkit detection
+  -->
+  <rootcheck>
+    <disabled>no</disabled>
+    <check_files>yes</check_files>
+    <check_trojans>yes</check_trojans>
+    <check_dev>yes</check_dev>
+    <check_sys>yes</check_sys>
+    <check_pids>yes</check_pids>
+    <check_ports>yes</check_ports>
+    <check_if>yes</check_if>
+    <frequency>86400</frequency>
+    <scan_timeout>1800</scan_timeout>
+    <skip_nfs>yes</skip_nfs>
+  </rootcheck>
+
+  <!--
+    Local log monitoring
+  -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/auth.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/syslog</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/daemon.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/kern.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/dpkg.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>command</log_format>
+    <command>df -h</command>
+    <frequency>3600</frequency>
+  </localfile>
+
+  <localfile>
+    <log_format>command</log_format>
+    <command>last -10</command>
+    <frequency>3600</frequency>
+  </localfile>
+
+  <!--
+    Active response (disabled)
+  -->
+  <active-response>
+    <disabled>yes</disabled>
+  </active-response>
+</ossec_config>
+
