@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -43,8 +45,59 @@ jobs:
             sleep 5
           done
 
-      - name: Deploy to palma
+      - name: Determine changed roles
+        id: changed
         run: |
-          ansible-playbook -i ansible/inventory.ini ansible/site.yml \
-            --vault-password-file vault.pass \
-            -e "vps_ssh_private_key_file=$HOME/.ssh/palma_ci"
+          before="${{ github.event.before }}"
+          after="${{ github.sha }}"
+          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            before="HEAD~1"
+          fi
+          files="$(git diff --name-only "$before" "$after" 2>/dev/null || true)"
+          echo "Changed files:"
+          echo "$files"
+
+          # Shared/global files affect every role -> full run (empty tags)
+          if echo "$files" | grep -qE '^(ansible/group_vars/|ansible/inventory|ansible/site\.yml|ansible/init\.yml)'; then
+            echo ">> shared files changed -> full run"
+            echo "tags=" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Map ansible/roles/<name>/... to the matching site.yml tag
+          tags=""
+          for f in $files; do
+            if [[ "$f" =~ ^ansible/roles/([^/]+)/ ]]; then
+              role="${BASH_REMATCH[1]}"
+              case ",$tags," in
+                *",$role,"*) : ;;
+                *) tags="${tags:+$tags,}$role" ;;
+              esac
+            fi
+          done
+
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          if [ -z "$tags" ]; then
+            echo ">> no role or shared file changed -> skip deploy"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo ">> deploying roles: $tags"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to palma
+        if: steps.changed.outputs.skip != 'true'
+        run: |
+          if [ -n "${{ steps.changed.outputs.tags }}" ]; then
+            echo "Deploying targeted roles: ${{ steps.changed.outputs.tags }}"
+            ansible-playbook -i ansible/inventory.ini ansible/site.yml \
+              --vault-password-file vault.pass \
+              -e "vps_ssh_private_key_file=$HOME/.ssh/palma_ci" \
+              --tags "${{ steps.changed.outputs.tags }}"
+          else
+            echo "Deploying full playbook"
+            ansible-playbook -i ansible/inventory.ini ansible/site.yml \
+              --vault-password-file vault.pass \
+              -e "vps_ssh_private_key_file=$HOME/.ssh/palma_ci"
+          fi
