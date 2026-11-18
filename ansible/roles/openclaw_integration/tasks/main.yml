@@ -3,15 +3,58 @@
 # Connects each service to OpenClaw so they can talk at runtime.
 # Runs after deploy_stack (all services are up and running).
 
+- name: Validate required variables for integrations
+  ansible.builtin.assert:
+    that:
+      - stack_dir is defined and stack_dir | length > 0
+      - domain is defined and domain | length > 0
+      - vikunja_api_token is defined and vikunja_api_token | length > 0
+    fail_msg: >-
+      Required variables for openclaw_integration are missing.
+      Ensure stack_dir, domain, and vikunja_api_token are defined.
+    quiet: true
+
+- name: Check that required Docker services are running
+  ansible.builtin.shell:
+    cmd: docker ps --filter name={{ item }} --format '{{ '{{.Names}}' }}' | grep -q {{ item }}
+  register: service_checks
+  changed_when: false
+  failed_when: false
+  loop:
+    - syncthing
+    - vikunja
+    - jellyfin
+    - opencloud
+    - rmfakecloud
+
+- name: Wait for OpenCloud to be ready (first boot can take time for migrations)
+  ansible.builtin.shell:
+    cmd: docker ps --filter name=opencloud --format '{{ '{{.Names}}' }}' | grep -q opencloud
+  register: opencloud_retry
+  changed_when: false
+  failed_when: false
+  retries: 12
+  delay: 10
+  until: opencloud_retry.rc == 0
+
+- name: Fail if core services are not running
+  ansible.builtin.fail:
+    msg: >-
+      Required service '{{ item.item }}' is not running.
+      Deploy the stack first with 'sh run.sh --tags deploy_stack'.
+  when: item.rc != 0
+  loop: "{{ service_checks.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
 - name: Include integration tasks
   ansible.builtin.include_tasks: "{{ item }}"
   loop:
-    - prometheus.yml
-    - loki.yml
-    - grafana.yml
     - syncthing.yml
     - vikunja.yml
-    - navidrome.yml
+    - jellyfin.yml
+    - rmfakecloud.yml
+    - opencloud.yml
     - signal.yml
     - integrations.yml
 

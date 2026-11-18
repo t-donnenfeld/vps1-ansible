@@ -1,0 +1,19 @@
+---
+# rmfakecloud integration with OpenClaw
+
+- name: Record rmfakecloud API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/rmfakecloud-endpoint.json"
+    content: |
+      {
+        "url": "http://127.0.0.1:3000",
+        "description": "rmfakecloud — self-hosted reMarkable cloud sync server",
+        "api_endpoint": "http://127.0.0.1:3000",
+        "endpoints": {
+          "health": "http://127.0.0.1:3000/health",
+          "api": "http://127.0.0.1:3000/api"
+        },
+        "public_url": "https://{{ subdomain_rmfakecloud }}.{{ domain }}"
+      }
+    mode: "0644"
+

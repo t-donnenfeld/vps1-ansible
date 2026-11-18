@@ -3,3 +3,12 @@ CREATE DATABASE {{ authelia_db_name }} OWNER {{ authelia_db_user }};
 
 CREATE USER {{ vikunja_db_user }} WITH PASSWORD '{{ vikunja_db_password }}';
 CREATE DATABASE {{ vikunja_db_name }} OWNER {{ vikunja_db_user }};
+
+CREATE USER {{ opencloud_db_user }} WITH PASSWORD '{{ opencloud_db_password }}';
+CREATE DATABASE {{ opencloud_db_name }} OWNER {{ opencloud_db_user }};
+
+CREATE USER phd WITH PASSWORD '{{ phd_db_password }}';
+CREATE DATABASE phd_hub OWNER phd;
+
+CREATE USER mlflow WITH PASSWORD '{{ mlflow_db_password }}';
+CREATE DATABASE mlflow OWNER mlflow;

@@ -20,6 +20,7 @@ fail2ban_bantime: 1h
 fail2ban_findtime: 10m
 fail2ban_maxretry: 5
 fail2ban_sender: fail2ban@{{ domain }}
+fail2ban_ignoreip: "127.0.0.1/8 ::1 158.109.94.91"
 
 unattended_update_package_lists: 1
 unattended_download_upgradeable_packages: 1
@@ -36,13 +37,19 @@ domain: les12.fr
 subdomain_auth: auth
 subdomain_tasks: tasks
 subdomain_dashboard: traefik
-subdomain_music: music
+subdomain_jellyfin: jelly
 subdomain_syncthing: sync
 subdomain_openclaw: claw
+subdomain_cloud: cloud
+subdomain_rmfakecloud: rmcloud
+subdomain_ark: ark
+subdomain_ark_wings: ark-wings
+subdomain_phd: phd
 email_admin: theotime.donnenfeld@les12.fr
 
 # Paths
 stack_dir: /opt/stack
+jellyfin_media_dir: /mnt/media
 
 # Postgres
 authelia_db_name: authelia
@@ -51,22 +58,32 @@ authelia_db_user: authelia
 vikunja_db_name: vikunja
 vikunja_db_user: vikunja
 
+opencloud_db_name: opencloud
+opencloud_db_user: opencloud
+
 # Authelia OIDC
 oidc_client_id: vikunja
-grafana_oidc_client_id: grafana
+jellyfin_oidc_client_id: jellyfin
 authelia_image: authelia/authelia:latest
-navidrome_image: deluan/navidrome:latest
+jellyfin_image: jellyfin/jellyfin:latest
 syncthing_image: syncthing/syncthing:latest
-openclaw_image: theo/openclaw:stable #Built on VPS directly
-openclaw_repo_url: https://github.com/openclaw/openclaw.git
-openclaw_repo_dest: /opt/openclaw-src
+rmfakecloud_image: ddvk/rmfakecloud
+openclaw_npm_version: 2026.9.9
+openclaw_install_dir: /opt/openclaw
+openclaw_gateway_port: 18789
 signal_image: bbernhard/signal-cli-rest-api:latest
-music_path: /mnt/music
+signal_phone_number: "+34610030733"
 obsidian_vaults_dir: /opt/services/shared/obsidian/vaults
 authelia_oidc_jwks_key_id: "authelia-oidc-key"
 authelia_oidc_jwks_algorithm: RS256
 authelia_oidc_client_secret_hash_path: "{{ stack_dir }}/authelia/secrets/oidc_client_secret.hash"
-grafana_oidc_client_secret_hash_path: "{{ stack_dir }}/authelia/secrets/grafana_oidc_client_secret.hash"
+jellyfin_oidc_client_secret_hash_path: "{{ stack_dir }}/authelia/secrets/jellyfin_oidc_client_secret.hash"
+
+# OpenCloud (ownCloud Infinite Scale) — replaces Nextcloud
+opencloud_client_id: opencloud
+opencloud_image: owncloud/ocis:latest
+opencloud_admin_password: ""
+opencloud_oidc_issuer: "https://{{ subdomain_auth }}.{{ domain }}"
 
 authelia_oidc_private_key_path: "{{ stack_dir }}/authelia/secrets/oidc_private_key.pem"
 
@@ -94,70 +111,31 @@ syncthing_api_key: ""
 # Vikunja CalDAV user password (local user for CalDAV sync with DAVx5, Tasks.org, etc.)
 vikunja_caldav_password: ""
 
-# Logging / Monitoring
-subdomain_grafana: grafana
-grafana_image: grafana/grafana:latest
-loki_image: grafana/loki:3.4.3
-promtail_image: grafana/promtail:3.4.3
-# grafana_admin_password: set in vault (vps.vault.yml)
+# Jellyfin API key (set in vault)
+jellyfin_api_key: ""
 
-# =============================================================================
-# Security Monitoring & Cybersecurity Stack
-# =============================================================================
+# Pterodactyl game panel
+pterodactyl_dir: /opt/pterodactyl
+pterodactyl_panel_url: "https://{{ subdomain_ark }}.{{ domain }}"
+pterodactyl_panel_timezone: "Europe/Berlin"
+pterodactyl_wings_port: 2022
 
-# --- Lynis Security Audit ---
-# WHY: Automated security auditing with daily scans and Loki integration.
-lynis_report_dir: /var/log/lynis/reports
-lynis_log_dir: /var/log/lynis/logs
-lynis_custom_profile_dir: /etc/lynis
-lynis_script_path: /usr/local/bin/run-lynis-audit.sh
-lynis_retention_days: 90
-# WHY 90 days: Allows trend analysis of hardening scores over 3 months.
-run_initial_audit: true
-# WHY true: Run an initial audit immediately on first deploy.
-# Set to false for subsequent runs (timer handles daily audits).
+# bgutil yt-dlp PoT provider
+bgutil_dir: /opt/bgutil
+bgutil_image: brainicism/bgutil-ytdlp-pot-provider:latest
+bgutil_port: 4416
 
-# --- Loki Push URL ---
-# WHY: Lynis pushes audit results to this URL for Grafana visualization.
-loki_push_url: http://localhost:3100
+# WireGuard
+wireguard_address: "10.0.0.1/24"
+wireguard_listen_port: 51820
+wireguard_peer_allowed_ips: "10.0.0.2/32"
 
-# --- Wazuh ---
-# WHY: Lightweight Wazuh deployment (manager only, no indexer/dashboard).
-# Alerts are forwarded to Loki via syslog for Grafana visualization.
-wazuh_manager_image: wazuh/wazuh-manager:4.9.2
-wazuh_agent_enabled: true
-# WHY true: Wazuh agent provides FIM, rootkit detection, and vulnerability scanning.
-# Set to false if running Lynis daily is sufficient for host-level auditing.
-wazuh_vulnerability_detector: false
-# WHY false: Vulnerability detector requires ~200MB CVE database download.
-# Enable only if needed. Lynis + unattended-upgrades provide adequate coverage.
-wazuh_manager_memory_limit: 1g
-wazuh_manager_cpu_limit: "1.0"
-wazuh_manager_memory_reservation: 512m
-# WHY limits: Wazuh manager can use significant resources during startup.
-# These limits prevent it from starving other containers.
+# PhD Research Hub (web-phd)
+phd_hub_dir: /opt/phd-hub
+phd_git_repo: git@github.com:tdonnenfeld/web-phd.git
+phd_git_key_file: "/home/{{ admin_user }}/.ssh/id_ed25519_gittdonnenfeld"
+phd_github_repos: "tdonnenfeld/web-phd,tdonnenfeld/volcomp"
 
-# --- Prometheus Security ---
-# WHY: Enhanced Prometheus config with node_exporter for host metrics.
-node_exporter_image: prom/node-exporter:latest
-node_exporter_memory_limit: 256M
-node_exporter_cpu_limit: "0.5"
-
-# --- Grafana Security Dashboards ---
-# WHY: Pre-provisioned dashboards for security monitoring.
-# Dashboard UIDs (used by Grafana for identification):
-#   - vps-security-overview
-#   - ssh-attack-monitor
-#   - wazuh-alerts
-#   - lynis-audit-trends
-#   - auth-failures
-#   - container-security
-#   - traefik-access-anomalies
-
-# --- Secure Networking ---
-# WHY: Enhanced network security configuration.
-auditd_enabled: false
-# WHY false: auditd generates significant log volume (~100MB/day).
-# Enable only if detailed audit trails are needed for compliance.
-# Lynis + Wazuh + Prometheus provide sufficient coverage without auditd.
+# GitHub token for web-phd (set in vault; empty disables GitHub activity)
+github_token: ""
 

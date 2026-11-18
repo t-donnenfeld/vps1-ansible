@@ -5,6 +5,17 @@
     name: docker
     state: restarted
     daemon_reload: true
+    # WHY: Docker daemon restart is required after changing /etc/docker/daemon.json.
+    # This kills all running containers. The stack.service systemd unit has
+    # Restart=always and BindsTo=docker.service, so it will restart automatically
+    # when Docker comes back up. However, this is disruptive — use with caution.
+    #
+    # NOTE: If this handler fails, check:
+    #   systemctl status docker.service
+    #   journalctl -xeu docker.service
+    # Common causes:
+    #   - ipv6: true on a host without IPv6 kernel support (set docker_ipv6: false)
+    #   - userland-proxy: false with incompatible kernel/netfilter
 
 - name: Restart stack
   ansible.builtin.systemd:

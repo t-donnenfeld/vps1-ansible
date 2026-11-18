@@ -51,10 +51,10 @@
     dest: "{{ stack_dir }}/openclaw/config/syncthing-endpoint.json"
     content: |
       {
-        "url": "http://syncthing:8384",
-        "description": "Syncthing REST API (internal Docker knowledge network)",
+        "url": "http://127.0.0.1:8384",
+        "description": "Syncthing REST API (accessible from host via localhost)",
         "api_key": "{{ syncthing_api_key }}",
-        "metrics_url": "http://syncthing:8384/metrics",
+        "metrics_url": "http://127.0.0.1:8384/metrics",
         "dashboard_url": "https://{{ subdomain_syncthing }}.{{ domain }}"
       }
     mode: "0640"

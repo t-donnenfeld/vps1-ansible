@@ -1,0 +1,12 @@
+[Unit]
+Description=Add UFW rules for OpenClaw (Docker to host communication)
+After=ufw.service
+Requires=ufw.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/scripts/ufw-openclaw-rules.sh
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

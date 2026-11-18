@@ -1,0 +1,30 @@
+---
+# wireguard — WireGuard VPN server (wg0)
+#
+# Configures a WireGuard interface on the host for private VPN access.
+# Listens on UDP port {{ wireguard_listen_port }}. Private/public keys are
+# stored in the vault.
+
+- name: Install WireGuard
+  ansible.builtin.apt:
+    name: wireguard
+    state: present
+    update_cache: true
+
+- name: Ensure WireGuard config directory exists
+  ansible.builtin.file:
+    path: /etc/wireguard
+    state: directory
+    mode: "0700"
+
+- name: Render WireGuard wg0.conf
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: /etc/wireguard/wg0.conf
+    mode: "0600"
+
+- name: Enable and start WireGuard wg0 interface
+  ansible.builtin.systemd:
+    name: wg-quick@wg0
+    state: started
+    enabled: true

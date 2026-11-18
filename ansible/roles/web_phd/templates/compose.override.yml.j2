@@ -1,0 +1,22 @@
+# Compose override applied by the web_phd Ansible role.
+# The upstream compose.yml + mlflow.Dockerfile have two MLflow 3.4.0 bugs:
+#   1. `--allowed-hosts` was removed in MLflow 3.x.
+#   2. mlflow 3.4.0 imports `FallbackAsyncAdaptedQueuePool`, removed in SQLAlchemy 2.1.
+# We patch both here instead of modifying the cloned repository.
+services:
+  phd-mlflow:
+    build:
+      context: ..
+      dockerfile: infrastructure/mlflow.patched.Dockerfile
+    command:
+      - mlflow
+      - server
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --backend-store-uri
+      - ${MLFLOW_DATABASE_URL}
+      - --artifacts-destination
+      - /artifacts
+      - --serve-artifacts

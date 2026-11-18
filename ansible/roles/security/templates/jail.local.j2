@@ -7,6 +7,7 @@ banaction = ufw
 destemail = {{ email_admin }}
 sender = {{ fail2ban_sender }}
 mta = sendmail
+ignoreip = {{ fail2ban_ignoreip | default('127.0.0.1/8 ::1') }}
 action = %(action_mwl)s
 
 [sshd]

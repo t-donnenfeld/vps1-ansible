@@ -6,8 +6,8 @@
 # resource-intensive. Enable only if you need detailed audit trails.
 #
 # WHY OPTIONAL: auditd can generate significant log volume (~100MB/day
-# on an active system). For a personal VPS, Lynis + Wazuh + Prometheus
-# provide sufficient security coverage without auditd overhead.
+# on an active system). For a personal VPS, systemd + Docker logs
+# provide sufficient visibility for most use cases.
 #
 # These rules focus on security-relevant events only:
 #   - File access to critical system files

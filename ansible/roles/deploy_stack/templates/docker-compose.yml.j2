@@ -6,6 +6,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - {{ stack_dir }}/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - {{ stack_dir }}/traefik/dynamic:/etc/traefik/dynamic:ro
@@ -59,6 +61,7 @@ services:
       - traefik.http.routers.authelia.entrypoints=websecure
       - traefik.http.routers.authelia.tls.certresolver=letsencrypt
       - traefik.http.services.authelia.loadbalancer.server.port=9091
+      - traefik.http.routers.authelia.middlewares=authelia-cors@file
       # Define the basicauth and drop-headers middlewares at the entrypoint level
       - traefik.http.middlewares.drop-untrusted-auth-headers.headers.customrequestheaders.Remote-User=
       - traefik.http.middlewares.drop-untrusted-auth-headers.headers.customrequestheaders.Remote-Groups=
@@ -90,6 +93,8 @@ services:
       VIKUNJA_MAILER_FROMEMAIL: "${MAIL_FROM}"
       OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET}"
       VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTSECRET: "${OIDC_CLIENT_SECRET}"
+    ports:
+      - "127.0.0.1:3456:3456"
     volumes:
       - {{ stack_dir }}/vikunja/config.yml:/app/vikunja/config.yml:ro
       - {{ stack_dir }}/vikunja/files:/app/vikunja/files
@@ -121,138 +126,123 @@ services:
       - traefik.http.routers.vikunja-web.middlewares=redirect-to-https@file
       - traefik.http.routers.vikunja-web.service=vikunja
 
-  navidrome:
-    image: "{{ navidrome_image }}"
+  jellyfin:
+    image: "{{ jellyfin_image }}"
     user: "1000:1000"
     networks:
       - web
+      - knowledge
     volumes:
-      - navidrome_data:/data
-      - {{ music_path | default('/mnt/music') }}:/music:ro
+      - jellyfin_config:/config
+      - jellyfin_cache:/cache
+      - {{ jellyfin_media_dir | default('/mnt/media') }}:/media:ro
+      - {{ stack_dir }}/jellyfin/SSO-Auth.xml:/config/plugins/configurations/SSO-Auth.xml:ro
     environment:
-      ND_EXTAUTH_TRUSTEDSOURCES: "0.0.0.0/0,::/0"
-      ND_EXTAUTH_USERHEADER: "Remote-User"
-      ND_ENABLEUSEREDITING: "false"
+      JELLYFIN_PublishedServerUrl: "https://{{ subdomain_jellyfin }}.{{ domain }}"
     labels:
       - traefik.enable=true
       - traefik.docker.network=stack_web
-      # Web UI + Subsonic clients using web-based Authelia auth (default)
-      - traefik.http.routers.navidrome.rule=Host(`{{ subdomain_music }}.{{ domain }}`)
-      - traefik.http.routers.navidrome.entrypoints=websecure
-      - traefik.http.routers.navidrome.tls.certresolver=letsencrypt
-      - traefik.http.services.navidrome.loadbalancer.server.port=4533
-      - traefik.http.routers.navidrome.middlewares=authelia@file
-      - traefik.http.routers.navidrome.priority=10
-      # Subsonic API router: bypasses Authelia for mobile clients (Symfonium, Amperfy, play:Sub, etc.)
-      # These clients authenticate directly against Navidrome's Subsonic API using password/token auth,
-      # and do NOT support Authelia's forward auth or OIDC flows. Bypassing Authelia for /rest/*
-      # is the standard recommended approach for Subsonic-compatible APIs behind a reverse proxy.
-      # Security: Navidrome handles its own auth for /rest/* endpoints (Subsonic password/token).
-      - traefik.http.routers.navidrome-api.rule=Host(`{{ subdomain_music }}.{{ domain }}`) && PathPrefix(`/rest/`)
-      - traefik.http.routers.navidrome-api.entrypoints=websecure
-      - traefik.http.routers.navidrome-api.tls.certresolver=letsencrypt
-      - traefik.http.routers.navidrome-api.middlewares=drop-untrusted-auth-headers@docker
-      - traefik.http.routers.navidrome-api.service=navidrome
-      - traefik.http.routers.navidrome-api.priority=100
+      # Main router (Web UI) — OIDC via Authelia replaces forward auth
+      # Users log in via Authelia SSO directly in Jellyfin (SSO-Auth plugin)
+      - traefik.http.routers.jellyfin.rule=Host(`{{ subdomain_jellyfin }}.{{ domain }}`)
+      - traefik.http.routers.jellyfin.entrypoints=websecure
+      - traefik.http.routers.jellyfin.tls.certresolver=letsencrypt
+      - traefik.http.services.jellyfin.loadbalancer.server.port=8096
+      - traefik.http.routers.jellyfin.service=jellyfin
       # HTTP -> HTTPS redirect
-      - traefik.http.routers.navidrome-web.rule=Host(`{{ subdomain_music }}.{{ domain }}`)
-      - traefik.http.routers.navidrome-web.entrypoints=web
-      - traefik.http.routers.navidrome-web.middlewares=drop-untrusted-auth-headers@docker,redirect-to-https@file
-      - traefik.http.routers.navidrome-web.service=navidrome
+      - traefik.http.routers.jellyfin-web.rule=Host(`{{ subdomain_jellyfin }}.{{ domain }}`)
+      - traefik.http.routers.jellyfin-web.entrypoints=web
+      - traefik.http.routers.jellyfin-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.jellyfin-web.service=jellyfin
 
-  loki:
-    image: "{{ loki_image }}"
-    command:
-      - -config.file=/etc/loki/loki-config.yml
-    volumes:
-      - {{ stack_dir }}/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
-      - {{ stack_dir }}/loki/rules:/loki/rules:ro
-      - loki_data:/loki
-    networks:
-      - internal
-      - knowledge
-    restart: unless-stopped
-
-  promtail:
-    image: "{{ promtail_image }}"
-    command:
-      - -config.file=/etc/promtail/promtail-config.yml
-    volumes:
-      - {{ stack_dir }}/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
-      - /var/log:/var/log:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - internal
-    depends_on:
-      - loki
-      - authelia
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:latest
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-      - --web.console.libraries=/usr/share/prometheus/console_libraries
-      - --web.console.templates=/usr/share/prometheus/consoles
-      - --web.enable-lifecycle
-    volumes:
-      - {{ stack_dir }}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - {{ stack_dir }}/prometheus/rules:/etc/prometheus/rules:ro
-      - prometheus_data:/prometheus
-    networks:
-      - knowledge
-    depends_on:
-      - syncthing
-    restart: unless-stopped
-
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
-    privileged: true
-    devices:
-      - /dev/kmsg:/dev/kmsg:ro
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    networks:
-      - knowledge
-    restart: unless-stopped
-
-  grafana:
-    image: "{{ grafana_image }}"
+  opencloud:
+    image: "{{ opencloud_image }}"
     env_file:
       - .env
     environment:
-      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      # OCIS_URL is REQUIRED: used by all internal services (web config.json server/theme URLs,
+      # proxy OIDC issuer, reva gateway, etc.). Without it, the web frontend gets an empty
+      # "server" field in config.json and shows "Missing or invalid config" error page.
+      OCIS_URL: "https://{{ subdomain_cloud }}.{{ domain }}"
+      OCIS_INSECURE: "false"
+      # OIDC issuer: points to Authelia (external IDP) since we exclude the built-in IDP
+      OCIS_OIDC_ISSUER: "{{ opencloud_oidc_issuer }}"
+      # OIDC client_id for the whole ocis instance (used by proxy, web, and other services)
+      OCIS_OIDC_CLIENT_ID: "{{ opencloud_client_id }}"
+      # Web frontend OIDC config (ownCloud Web SPA — served by ocis web service at /config.json)
+      WEB_OIDC_CLIENT_ID: "{{ opencloud_client_id }}"
+      WEB_OIDC_AUTHORITY: "{{ opencloud_oidc_issuer }}"
+      WEB_OIDC_METADATA_URL: "{{ opencloud_oidc_issuer }}/.well-known/openid-configuration"
+      # Exclude built-in IDP since we use Authelia as external OIDC provider
+      # OCIS_EXCLUDE_RUN_SERVICES: "idp" (re-enabled for user provisioning with external OIDC)
+      OCIS_LOG_LEVEL: "info"
+      OCIS_LOG_PRETTY: "true"
+      # No TLS between Traefik and oCIS (Traefik handles TLS termination)
+      PROXY_TLS: "false"
+      # Content Security Policy: allow the ownCloud Web SPA to fetch OIDC config,
+      # JWKS, and exchange tokens with the Authelia OIDC provider (auth.les12.fr).
+      # Without this, the browser blocks fetch() calls to the OIDC provider's
+      # token/userinfo endpoints due to connect-src CSP directive.
+      PROXY_CSP_CONNECT_SRC: "'self' blob: https://raw.githubusercontent.com/owncloud/awesome-ocis/ https://{{ subdomain_auth }}.{{ domain }}"
+      # Admin password for first login (overrides ocis init generated value)
+      IDM_ADMIN_PASSWORD: "{{ opencloud_admin_password }}"
+      # OpenCloud uses its own in-memory / embedded database by default.
+      # For production, configure OC_STORE_DATASOURCE to point to Postgres.
+      # See: https://owncloud.dev/ocis/deployment/
+      # Explicit proxy OIDC configuration for external IDP (Authelia)
+      # The proxy validates access tokens from Authelia for API requests.
+      # The proxy reads client_id from OCIS_OIDC_CLIENT_ID / WEB_OIDC_CLIENT_ID.
+      # PROXY_OIDC_CLIENT_ID is NOT a valid env var in ocis v8.x (silently ignored).
+      PROXY_OIDC_ISSUER: "{{ opencloud_oidc_issuer }}"
+      # Accept opaque access tokens from Authelia (validate via userinfo)
+      PROXY_OIDC_ACCESS_TOKEN_VERIFY_METHOD: "none"
+      PROXY_OIDC_INSECURE: "false"
+      # Desktop/mobile clients: rewrite /.well-known/openid-configuration
+      # to point to Authelia instead of the built-in IDP
+      PROXY_OIDC_REWRITE_WELLKNOWN: "true"
+      # Auto-provision accounts from OIDC claims (creates oCIS user on first login)
+      PROXY_AUTOPROVISION_ACCOUNTS: "true"
+      # Map OIDC claims to oCIS user attributes
+      PROXY_USER_OIDC_CLAIM: "preferred_username"
+      PROXY_USER_CS3_CLAIM: "username"
+    # Run ocis init on first startup to generate mandatory secrets (jwt_secret,
+    # machine auth API key, transfer secret, service user passwords, etc.).
+    # The || true allows subsequent restarts where ocis.yaml already exists.
+    # NOTE: ocis is a Go binary with no shell. We must override entrypoint to
+    # use /bin/sh -c so that the init command runs before ocis server.
+    # WHY --insecure: Prevents interactive prompt "Do you want to configure
+    # Infinite Scale with certificate checking disabled?" when OC_INSECURE
+    # is set to "false" (default). The prompt would block container startup.
+    # WHY --admin-password: Uses the IDM_ADMIN_PASSWORD env var to set the
+    # admin password during init, rather than a randomly generated one.
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ocis init --insecure --admin-password ${IDM_ADMIN_PASSWORD} || true; exec ocis server"]
     volumes:
-      - grafana_data:/var/lib/grafana
-      - {{ stack_dir }}/grafana/grafana.ini:/etc/grafana/grafana.ini:ro
-      - {{ stack_dir }}/grafana/provisioning:/etc/grafana/provisioning:ro
-      - {{ stack_dir }}/grafana/dashboards:/etc/grafana/dashboards:ro
-    secrets:
-      - grafana_admin_password
+      - opencloud_data:/var/lib/ocis
+      - opencloud_config:/etc/ocis
     networks:
       - web
       - internal
+      - knowledge
     depends_on:
-      - loki
       - authelia
+    restart: unless-stopped
     labels:
       - traefik.enable=true
       - traefik.docker.network=stack_web
-      - traefik.http.routers.grafana.rule=Host(`{{ subdomain_grafana }}.{{ domain }}`)
-      - traefik.http.routers.grafana.entrypoints=websecure
-      - traefik.http.routers.grafana.tls.certresolver=letsencrypt
-      - traefik.http.services.grafana.loadbalancer.server.port=3000
-      - traefik.http.routers.grafana.service=grafana
-      - traefik.http.routers.grafana-web.rule=Host(`{{ subdomain_grafana }}.{{ domain }}`)
-      - traefik.http.routers.grafana-web.entrypoints=web
-      - traefik.http.routers.grafana-web.middlewares=redirect-to-https@file
-      - traefik.http.routers.grafana-web.service=grafana
+      - traefik.http.routers.opencloud.rule=Host(`{{ subdomain_cloud }}.{{ domain }}`)
+      - traefik.http.routers.opencloud.entrypoints=websecure
+      - traefik.http.routers.opencloud.tls.certresolver=letsencrypt
+      - traefik.http.services.opencloud.loadbalancer.server.port=9200
+      - traefik.http.routers.opencloud.service=opencloud
+      - traefik.http.routers.opencloud.middlewares=opencloud-csp@file
+      # No Authelia forward auth middleware — OIDC is handled directly by OpenCloud
+      # HTTP -> HTTPS redirect
+      - traefik.http.routers.opencloud-web.rule=Host(`{{ subdomain_cloud }}.{{ domain }}`)
+      - traefik.http.routers.opencloud-web.entrypoints=web
+      - traefik.http.routers.opencloud-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.opencloud-web.service=opencloud
+
 
   syncthing:
     image: "{{ syncthing_image }}"
@@ -286,98 +276,51 @@ services:
       - traefik.http.routers.syncthing-web.middlewares=redirect-to-https@file
       - traefik.http.routers.syncthing-web.service=syncthing
 
-  openclaw:
-    image: "{{ openclaw_image }}"
-    user: "1000:1000"
-    stdin_open: true
-    tty: true
-    volumes:
-      # Named Docker volume for runtime state (sessions, journals, locks, workspace, cache)
-      # Provides stable overlay2 inode semantics, fixing "session file changed" race conditions
-      # that occur on host bind mounts during concurrent gateway + agent session writes.
-      - openclaw_state:/home/node/.openclaw
-      # Ansible-managed config files (read-only bind mount)
-      # Copied into named volume on container start via init script below
-      - {{ stack_dir }}/openclaw/config:/home/node/.openclaw-config:ro
-      # Obsidian vaults
-      - {{ obsidian_vaults_dir }}:/vaults:rw
-    networks:
-      - web
-      - knowledge
-    environment:
-      # Point data dir into the named volume for consistent filesystem semantics
-      OPENCLAW_DATA_DIR: "/home/node/.openclaw/data"
-      OPENCLAW_GATEWAY_TOKEN: "${OPENCLAW_GATEWAY_TOKEN}"
-      VIKUNJA_URL: "http://vikunja:3456"
-      VIKUNJA_API_TOKEN: "${VIKUNJA_API_TOKEN}"
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
-      SIGNAL_URL: "http://signal:8080"
-    # Init script: copies config files from read-only bind mount into named volume
-    # on first start or when config checksum changes. Uses checksum comparison to
-    # avoid unnecessary copies and never overwrites runtime state (sessions, journals).
-    # The $$ is Jinja2 escaping for a literal $ in the rendered output.
-    command: >
-      sh -c '
-        set -e
-        SRC=/home/node/.openclaw-config
-        DST=/home/node/.openclaw
-        MARKER=$${DST}/.config-checksum
-        if [ -d "$${SRC}" ]; then
-          CONFIG_FILES="openclaw.json agents/main/agent/auth-profiles.json integrations.yaml"
-          NEED_COPY=0
-          if [ ! -f "$${MARKER}" ]; then
-            NEED_COPY=1
-          else
-            for f in $${CONFIG_FILES}; do
-              if [ -f "$${SRC}/$${f}" ]; then
-                SRC_SUM=$$(sha256sum "$${SRC}/$${f}" | cut -d" " -f1)
-                DST_SUM=$$(sha256sum "$${DST}/$${f}" 2>/dev/null | cut -d" " -f1 || echo "")
-                if [ "$${SRC_SUM}" != "$${DST_SUM}" ]; then
-                  NEED_COPY=1
-                  break
-                fi
-              fi
-            done
-          fi
-          if [ "$${NEED_COPY}" = "1" ]; then
-            echo "openclaw: initializing config from bind mount..."
-            for f in $${CONFIG_FILES}; do
-              if [ -f "$${SRC}/$${f}" ]; then
-                mkdir -p "$${DST}/$$(dirname $${f})"
-                cp "$${SRC}/$${f}" "$${DST}/$${f}"
-              fi
-            done
-            echo "openclaw: config initialized."
-          fi
-        fi
-        exec node openclaw.mjs gateway
-      '
+  # OpenClaw is now installed directly on the host (not in Docker).
+  # Traefik routes claw.les12.fr to host.docker.internal:{{ openclaw_gateway_port | default(18789) }} via file-based config.
+
+  rmfakecloud:
+    image: "{{ rmfakecloud_image }}"
+    container_name: rmfakecloud
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - rmfakecloud_data:/data
+      - /usr/bin/busybox:/healthcheck/busybox:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "/healthcheck/busybox", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
-      # Increased start_period to account for config init script on first boot
       start_period: 30s
+    environment:
+      JWT_SECRET_KEY: "{{ rmfakecloud_jwt_secret }}"
+      PORT: "3000"
+      RM_TRUST_PROXY: "true"
+      RM_HTTPS_COOKIE: "true"
+    networks:
+      - web
     labels:
       - traefik.enable=true
       - traefik.docker.network=stack_web
-      - traefik.http.routers.openclaw.rule=Host(`{{ subdomain_openclaw }}.{{ domain }}`)
-      - traefik.http.routers.openclaw.entrypoints=websecure
-      - traefik.http.routers.openclaw.tls.certresolver=letsencrypt
-      - traefik.http.routers.openclaw.service=openclaw
-      - traefik.http.services.openclaw.loadbalancer.server.port=8080
-      - traefik.http.routers.openclaw.middlewares=authelia@file
+      - traefik.http.routers.rmfakecloud.rule=Host(`{{ subdomain_rmfakecloud }}.{{ domain }}`)
+      - traefik.http.routers.rmfakecloud.entrypoints=websecure
+      - traefik.http.routers.rmfakecloud.tls.certresolver=letsencrypt
+      - traefik.http.services.rmfakecloud.loadbalancer.server.port=3000
+      # No authentication middleware — reMarkable tablet sync client cannot handle forward auth.
+      # rmfakecloud handles its own device and user authentication internally.
       # HTTP -> HTTPS redirect
-      - traefik.http.routers.openclaw-web.rule=Host(`{{ subdomain_openclaw }}.{{ domain }}`)
-      - traefik.http.routers.openclaw-web.entrypoints=web
-      - traefik.http.routers.openclaw-web.middlewares=redirect-to-https@file
-      - traefik.http.routers.openclaw-web.service=openclaw
+      - traefik.http.routers.rmfakecloud-web.rule=Host(`{{ subdomain_rmfakecloud }}.{{ domain }}`)
+      - traefik.http.routers.rmfakecloud-web.entrypoints=web
+      - traefik.http.routers.rmfakecloud-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.rmfakecloud-web.service=rmfakecloud
 
   signal:
     image: "{{ signal_image }}"
     container_name: "{{ signal_container_name | default('signal-cli-rest-api') }}"
+    ports:
+      - "127.0.0.1:8088:8080"
     volumes:
       - signal_data:/home/.local/share/signal-cli
     networks:
@@ -390,14 +333,12 @@ volumes:
   traefik_letsencrypt:
   pgdata:
   # Named vikunja_files removed (using host bind mount instead)
-  navidrome_data:
-  loki_data:
-  grafana_data:
-  prometheus_data:
+  jellyfin_config:
+  jellyfin_cache:
   signal_data:
-  # Named volume for OpenClaw runtime state (sessions, journals, locks, workspace, cache)
-  # Provides stable overlay2 inode semantics, fixing session file corruption on bind mounts
-  openclaw_state:
+  opencloud_data:
+  opencloud_config:
+  rmfakecloud_data:
 
 networks:
   web:
@@ -405,7 +346,3 @@ networks:
   knowledge:
     driver: bridge
     internal: false
-
-secrets:
-  grafana_admin_password:
-    file: {{ stack_dir }}/grafana/secrets/grafana_admin_password

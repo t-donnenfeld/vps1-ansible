@@ -1,0 +1,5 @@
+#!/bin/bash
+# OpenClaw UFW rules - added at boot to persist across reboots
+iptables -C ufw-before-input -p tcp -s 172.16.0.0/12 --dport {{ openclaw_gateway_port | default(18789) }} -j ACCEPT 2>/dev/null || iptables -I ufw-before-input 1 -p tcp -s 172.16.0.0/12 --dport {{ openclaw_gateway_port | default(18789) }} -j ACCEPT
+iptables -C ufw-before-input -p tcp -s 10.0.0.0/8 --dport {{ openclaw_gateway_port | default(18789) }} -j ACCEPT 2>/dev/null || iptables -I ufw-before-input 2 -p tcp -s 10.0.0.0/8 --dport {{ openclaw_gateway_port | default(18789) }} -j ACCEPT
+iptables -C ufw-before-input -p tcp -s 192.168.0.0/16 --dport {{ openclaw_gateway_port | default(18789) }} -j ACCEPT 2>/dev/null || iptables -I ufw-before-input 3 -p tcp -s 192.168.0.0/16 --dport {{ openclaw_gateway_port | default(18789) }} -j ACCEPT

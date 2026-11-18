@@ -1,0 +1,105 @@
+services:
+  database:
+    image: mariadb:11
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+      MYSQL_DATABASE: panel
+      MYSQL_USER: pterodactyl
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD}"
+    volumes:
+      - ./database:/var/lib/mysql
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  cache:
+    image: redis:alpine
+    restart: unless-stopped
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  panel:
+    image: ghcr.io/pterodactyl/panel:latest
+    restart: unless-stopped
+    environment:
+      APP_URL: "${PANEL_URL}"
+      APP_TIMEZONE: "${PANEL_TIMEZONE}"
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_THEME: pterodactyl
+      APP_ENVIRONMENT_ONLY: "false"
+      TRUSTED_PROXIES: "*"
+      DB_HOST: database
+      DB_PORT: "3306"
+      DB_DATABASE: panel
+      DB_USERNAME: pterodactyl
+      DB_PASSWORD: "${MYSQL_PASSWORD}"
+      CACHE_DRIVER: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: cache
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: "null"
+      HASHIDS_LENGTH: "8"
+      MAIL_MAILER: log
+      MAIL_FROM_ADDRESS: no-reply@{{ domain }}
+      MAIL_FROM_NAME: "Pterodactyl Panel"
+    volumes:
+      - ./panel/var:/app/var
+      - ./panel/logs:/app/storage/logs
+    networks:
+      - internal
+      - web
+    depends_on:
+      database:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=stack_web
+      - traefik.http.routers.panel.rule=Host(`{{ subdomain_ark }}.{{ domain }}`)
+      - traefik.http.routers.panel.entrypoints=websecure
+      - traefik.http.routers.panel.tls.certresolver=letsencrypt
+      - traefik.http.services.panel.loadbalancer.server.port=80
+
+  wings:
+    image: ghcr.io/pterodactyl/wings:latest
+    restart: unless-stopped
+    environment:
+      TZ: "${PANEL_TIMEZONE}"
+    ports:
+      - "{{ pterodactyl_wings_port }}:2022"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/pterodactyl:/var/lib/pterodactyl
+      - /tmp/pterodactyl:/tmp/pterodactyl
+      - ./wings:/etc/pterodactyl
+    networks:
+      - web
+    depends_on:
+      - panel
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=stack_web
+      - traefik.http.routers.wings.rule=Host(`{{ subdomain_ark_wings }}.{{ domain }}`)
+      - traefik.http.routers.wings.entrypoints=websecure
+      - traefik.http.routers.wings.tls.certresolver=letsencrypt
+      - traefik.http.services.wings.loadbalancer.server.port=8080
+
+networks:
+  internal:
+  web:
+    external: true
+    name: stack_web

@@ -53,7 +53,7 @@ fi
 
 # --- 3. Docker volumes ---
 log "Backing up Docker volumes..."
-for vol in stack_pgdata stack_navidrome_data stack_loki_data stack_grafana_data stack_prometheus_data stack_signal_data; do
+for vol in stack_pgdata stack_jellyfin_config stack_jellyfin_cache stack_signal_data stack_opencloud_data stack_opencloud_config stack_rmfakecloud_data; do
     VOL_PATH="/var/lib/docker/volumes/${vol}/_data"
     if [ -d "$VOL_PATH" ]; then
         tar czf "$BACKUP_DIR/volumes/${vol}_$DATE.tar.gz" -C "/var/lib/docker/volumes/${vol}" _data 2>> "$LOG_FILE"
@@ -68,10 +68,7 @@ log "Archiving stack config..."
 if [ -d "$STACK_DIR" ]; then
     # Exclude large data dirs that are already backed up as volumes
     tar czf "$BACKUP_DIR/config/stack_config_$DATE.tar.gz" \
-        --exclude='*/navidrome/data' \
-        --exclude='*/loki/data' \
-        --exclude='*/grafana/data' \
-        --exclude='*/prometheus/data' \
+        --exclude='*/jellyfin/config' \
         -C "$(dirname "$STACK_DIR")" "$(basename "$STACK_DIR")" 2>> "$LOG_FILE"
     log "Config archive completed: stack_config_$DATE.tar.gz"
 else

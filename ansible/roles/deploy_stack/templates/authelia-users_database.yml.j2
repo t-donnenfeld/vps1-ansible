@@ -5,3 +5,17 @@ users:
     email: "{{ email_admin }}"
     groups:
       - admins
+      - jellyfin-admins
+      - jellyfin-users
+  diane:
+    displayname: "Diane"
+    password: "{{ authelia_diane_password_hash }}"
+    email: "diane@{{ domain }}"
+    groups:
+      - jellyfin-users
+  admin:
+    displayname: "Admin"
+    password: "{{ authelia_admin_account_password_hash }}"
+    email: "admin@{{ domain }}"
+    groups:
+      - admins

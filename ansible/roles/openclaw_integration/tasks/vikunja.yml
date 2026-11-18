@@ -3,7 +3,7 @@
 
 - name: Check if Vikunja API is reachable
   ansible.builtin.uri:
-    url: "http://vikunja:3456/api/v1/info"
+    url: "http://127.0.0.1:3456/api/v1/info"
     method: GET
   register: vikunja_api_check
   ignore_errors: true
@@ -11,7 +11,7 @@
 
 - name: Verify Vikunja API token by calling /user endpoint
   ansible.builtin.uri:
-    url: "http://vikunja:3456/api/v1/user"
+    url: "http://127.0.0.1:3456/api/v1/user"
     method: GET
     headers:
       Authorization: "Bearer {{ vikunja_api_token }}"
@@ -35,13 +35,13 @@
     dest: "{{ stack_dir }}/openclaw/config/vikunja-endpoint.json"
     content: |
       {
-        "url": "http://vikunja:3456",
-        "description": "Vikunja REST API (internal Docker knowledge network)",
+        "url": "http://127.0.0.1:3456",
+        "description": "Vikunja REST API (accessible from host via localhost)",
         "api_token": "{{ vikunja_api_token }}",
         "api_version": "v1",
-        "info_endpoint": "http://vikunja:3456/api/v1/info",
-        "tasks_endpoint": "http://vikunja:3456/api/v1/tasks",
-        "projects_endpoint": "http://vikunja:3456/api/v1/projects",
+        "info_endpoint": "http://127.0.0.1:3456/api/v1/info",
+        "tasks_endpoint": "http://127.0.0.1:3456/api/v1/tasks",
+        "projects_endpoint": "http://127.0.0.1:3456/api/v1/projects",
         "dashboard_url": "https://{{ subdomain_tasks }}.{{ domain }}"
       }
     mode: "0640"

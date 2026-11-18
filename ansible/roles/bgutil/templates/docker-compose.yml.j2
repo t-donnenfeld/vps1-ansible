@@ -1,0 +1,7 @@
+services:
+  bgutil-provider:
+    image: "{{ bgutil_image }}"
+    container_name: bgutil-provider
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:{{ bgutil_port }}:4416"

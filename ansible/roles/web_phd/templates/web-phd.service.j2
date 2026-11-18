@@ -1,0 +1,15 @@
+[Unit]
+Description=PhD Research Hub (web-phd)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ phd_hub_dir }}
+ExecStart=/usr/bin/docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.override.yml up -d
+ExecStop=/usr/bin/docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.override.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

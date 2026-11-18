@@ -17,4 +17,5 @@ authelia/secrets/*
 ansible/.ansible/
 vault-pass.txt
 *.vault-pass
+.vault-password
 .aider*

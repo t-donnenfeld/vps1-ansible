@@ -1,0 +1,15 @@
+---
+# Jellyfin integration with OpenClaw
+
+- name: Record Jellyfin API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/jellyfin-endpoint.json"
+    content: |
+      {
+        "url": "http://127.0.0.1:8096",
+        "description": "Jellyfin media streaming API (accessible from host via localhost)",
+        "api_endpoint": "http://127.0.0.1:8096",
+        "dashboard_url": "https://{{ subdomain_jellyfin }}.{{ domain }}"
+      }
+    mode: "0644"
+

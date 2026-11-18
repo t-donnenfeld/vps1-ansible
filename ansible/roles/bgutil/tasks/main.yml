@@ -1,0 +1,34 @@
+---
+# bgutil — yt-dlp proof-of-origin token provider
+#
+# Runs the bgutil-ytdlp-pot-provider container on the host, bound to
+# 127.0.0.1:{{ bgutil_port }} (internal only). Used by yt-dlp to generate
+# proof-of-origin tokens for YouTube downloads.
+
+- name: Create bgutil directory
+  ansible.builtin.file:
+    path: "{{ bgutil_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Render bgutil docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ bgutil_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Install bgutil systemd unit
+  ansible.builtin.template:
+    src: bgutil.service.j2
+    dest: /etc/systemd/system/bgutil.service
+    mode: "0644"
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Start bgutil service
+  ansible.builtin.systemd:
+    name: bgutil
+    state: started
+    enabled: true

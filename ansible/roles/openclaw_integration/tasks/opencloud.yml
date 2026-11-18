@@ -1,0 +1,15 @@
+---
+# OpenCloud (ownCloud Infinite Scale) integration with OpenClaw
+
+- name: Record OpenCloud API endpoint for OpenClaw
+  ansible.builtin.copy:
+    dest: "{{ stack_dir }}/openclaw/config/opencloud-endpoint.json"
+    content: |
+      {
+        "url": "http://127.0.0.1:9200",
+        "description": "OpenCloud (ownCloud Infinite Scale) cloud storage and collaboration (accessible from host via localhost)",
+        "api_endpoint": "http://127.0.0.1:9200",
+        "dashboard_url": "https://{{ subdomain_cloud }}.{{ domain }}"
+      }
+    mode: "0644"
+

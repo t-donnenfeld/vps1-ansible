@@ -1,0 +1,9 @@
+---
+# rmapi defaults
+rmapi_version: v0.0.34
+rmapi_arch: amd64
+rmapi_download_url: "https://github.com/ddvk/rmapi/releases/download/{{ rmapi_version }}/rmapi-linux-{{ rmapi_arch }}.tar.gz"
+rmapi_install_dir: /usr/local/bin
+rmapi_config_dir: "/home/{{ admin_user }}/.config/rmapi"
+rmapi_binary: /usr/local/bin/rmapi
+

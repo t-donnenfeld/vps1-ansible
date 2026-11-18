@@ -41,9 +41,35 @@ ufw default deny incoming
 ufw default allow outgoing
 
 # --- Logging ---
-# WHY: Enable logging for blocked packets. This feeds into Promtail/Loki
-# for security monitoring in Grafana.
+# WHY: Enable logging for blocked packets. This feeds into system audit logs
+# for security monitoring.
 ufw logging low
+
+# --- OpenClaw port (Docker → host communication) ---
+# WHY: OpenClaw runs directly on the host (port {{ openclaw_gateway_port | default(18789) }}) and is
+# accessed by Traefik running in Docker. Docker containers connect to the host
+# via the gateway IP of their network bridge. UFW's default deny (routed)
+# policy blocks this traffic unless explicitly allowed.
+# We use source IP-based rules because Docker bridge interface names
+# (br-XXXXX) change when networks are recreated, making interface-based
+# rules unreliable.
+ufw allow in on stack_web to any port {{ openclaw_gateway_port | default(18789) }} proto tcp comment 'Allow OpenClaw on stack_web'
+ufw allow in on stack_knowledge to any port {{ openclaw_gateway_port | default(18789) }} proto tcp comment 'Allow OpenClaw on stack_knowledge'
+ufw allow in on docker0 to any port {{ openclaw_gateway_port | default(18789) }} proto tcp comment 'Allow OpenClaw on Docker bridge'
+# Fallback: allow from any private Docker IP range (in case interface names mismatch)
+ufw allow in proto tcp from 172.16.0.0/12 to any port {{ openclaw_gateway_port | default(18789) }} comment 'Allow OpenClaw from Docker private IPs'
+ufw allow in proto tcp from 10.0.0.0/8 to any port {{ openclaw_gateway_port | default(18789) }} comment 'Allow OpenClaw from Docker private IPs'
+
+# --- Pterodactyl / ARK: Survival Evolved game ports ---
+# WHY: The ARK game server runs inside Pterodactyl Wings and needs its
+# game, query, and RCON ports exposed publicly.
+ufw allow 7777/udp comment 'ARK SE game'
+ufw allow 7778/udp comment 'ARK SE raw'
+ufw allow 27015/udp comment 'ARK SE query'
+ufw allow 27020/tcp comment 'ARK SE rcon'
+
+# --- WireGuard VPN ---
+ufw allow {{ wireguard_listen_port | default(51820) }}/udp comment 'WireGuard VPN'
 
 # --- Anti-spoofing ---
 # WHY: Drop invalid packets that could be part of spoofing attacks.

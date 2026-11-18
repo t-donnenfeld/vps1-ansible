@@ -8,7 +8,15 @@
 #   3. Container capability dropping recommendations
 #   4. Traefik rate limiting and security middlewares
 #   5. Network isolation best practices
-#   6. Auditd for system call auditing (optional)
+#   6. Auditd for system call auditing
+#
+# WHY AUDITD: Replaces Wazuh FIM (File Integrity Monitoring) with a lighter,
+# kernel-level auditing solution. Auditd provides:
+#   - System call monitoring (file access, process execution)
+#   - User/group management tracking
+#   - Network configuration change detection
+#   - Time change detection (anti-tampering)
+#   - Much lighter than Wazuh (~10MB vs ~1GB)
 #
 # WHY SEPARATE ROLE: Keeps security concerns modular.
 # The existing `security` role focuses on SSH and base OS hardening.
@@ -78,7 +86,7 @@
     - secure_networking
     - traefik
 
-- name: Install auditd (optional system call auditing)
+- name: Install auditd (system call auditing)
   ansible.builtin.apt:
     name: auditd
     state: present

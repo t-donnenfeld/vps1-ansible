@@ -1,0 +1,69 @@
+---
+# web_phd — PhD Research Hub (Next.js journal + MLflow + Quartz nginx)
+#
+# Clones the tdonnenfeld/web-phd project and deploys it at https://{{ subdomain_phd }}.{{ domain }}
+# behind Traefik + Authelia (forward auth). Uses the existing stack Postgres
+# (phd_hub + mlflow databases) and Vikunja on the stack_internal network.
+#
+# Prerequisites (manual, one-time on the host):
+#   - SSH deploy key present at {{ phd_git_key_file }} with access to the repo
+#   - DNS record {{ subdomain_phd }}.{{ domain }} -> {{ ansible_default_ipv4.address | default('185.196.20.127') }}
+
+- name: Ensure PhD hub directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ phd_hub_dir }}"
+    - "{{ phd_hub_dir }}/quartz/public"
+    - "{{ phd_hub_dir }}/data/mlflow"
+
+- name: Clone or update web-phd repository
+  ansible.builtin.git:
+    repo: "{{ phd_git_repo }}"
+    dest: "{{ phd_hub_dir }}"
+    version: main
+    key_file: "{{ phd_git_key_file }}"
+    accept_hostkey: true
+  register: phd_git_result
+
+- name: Render PhD hub .env
+  ansible.builtin.template:
+    src: phd.env.j2
+    dest: "{{ phd_hub_dir }}/.env"
+    mode: "0600"
+
+- name: Copy patched mlflow Dockerfile
+  ansible.builtin.copy:
+    src: mlflow.Dockerfile
+    dest: "{{ phd_hub_dir }}/infrastructure/mlflow.patched.Dockerfile"
+    mode: "0644"
+
+- name: Render compose override (fix mlflow 3.4.0 flags/deps)
+  ansible.builtin.template:
+    src: compose.override.yml.j2
+    dest: "{{ phd_hub_dir }}/infrastructure/compose.override.yml"
+    mode: "0644"
+
+- name: Build web-phd Docker images
+  ansible.builtin.command:
+    cmd: docker compose --env-file .env -f infrastructure/compose.yml -f infrastructure/compose.override.yml build
+    chdir: "{{ phd_hub_dir }}"
+  changed_when: false
+
+- name: Install web-phd systemd unit
+  ansible.builtin.template:
+    src: web-phd.service.j2
+    dest: /etc/systemd/system/web-phd.service
+    mode: "0644"
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Enable and start web-phd service
+  ansible.builtin.systemd:
+    name: web-phd
+    state: started
+    enabled: true

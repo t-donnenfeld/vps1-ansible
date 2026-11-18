@@ -1,0 +1,50 @@
+---
+# pterodactyl — Pterodactyl game server panel (ARK: Survival Evolved)
+#
+# Deploys the Pterodactyl panel + wings + MariaDB + Redis on the host.
+# The panel is exposed at https://{{ subdomain_ark }}.{{ domain }} (Traefik),
+# and wings (SFTP + daemon) at https://{{ subdomain_ark_wings }}.{{ domain }} / port {{ pterodactyl_wings_port }}.
+#
+# NOTE: The wings node configuration (config.yml containing the node UUID
+# and daemon token) is generated at runtime by the Pterodactyl panel
+# (`php artisan pterodactyl:node:make`) and is NOT managed by Ansible.
+
+- name: Create Pterodactyl directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ pterodactyl_dir }}"
+    - "{{ pterodactyl_dir }}/database"
+    - "{{ pterodactyl_dir }}/panel/var"
+    - "{{ pterodactyl_dir }}/panel/logs"
+    - "{{ pterodactyl_dir }}/wings"
+
+- name: Render Pterodactyl .env
+  ansible.builtin.template:
+    src: pterodactyl.env.j2
+    dest: "{{ pterodactyl_dir }}/.env"
+    mode: "0600"
+
+- name: Render Pterodactyl docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ pterodactyl_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Install Pterodactyl systemd unit
+  ansible.builtin.template:
+    src: pterodactyl.service.j2
+    dest: /etc/systemd/system/pterodactyl.service
+    mode: "0644"
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Start Pterodactyl service
+  ansible.builtin.systemd:
+    name: pterodactyl
+    state: started
+    enabled: true

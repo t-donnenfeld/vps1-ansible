@@ -30,3 +30,10 @@ http:
       redirectScheme:
         scheme: https
         permanent: true
+    authelia-cors:
+      headers:
+        customResponseHeaders:
+          Access-Control-Allow-Origin: "https://{{ subdomain_cloud }}.{{ domain }}"
+          Access-Control-Allow-Methods: "GET, POST, OPTIONS"
+          Access-Control-Allow-Headers: "Content-Type, Authorization"
+          Access-Control-Allow-Credentials: "true"

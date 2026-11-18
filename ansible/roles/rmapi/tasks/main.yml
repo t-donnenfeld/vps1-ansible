@@ -1,0 +1,98 @@
+---
+# rmapi — Install rmapi CLI tool for managing reMarkable cloud files
+#
+# rmapi is a Go CLI app that provides programmatic access to the reMarkable Cloud API.
+# It connects to the self-hosted rmfakecloud instance via RMAPI_HOST env var.
+#
+# Architecture:
+#   - Binary downloaded from GitHub releases (pre-built, no Go toolchain needed)
+#   - Installed to /usr/local/bin/rmapi
+#   - RMAPI_HOST env var set in admin user's .bashrc to point to rmfakecloud
+#   - Config directory created at ~/.config/rmapi/ for auth tokens
+#   - First use requires interactive authentication (device auth code)
+#     Run: RMAPI_HOST=https://rmcloud.les12.fr rmapi
+#     Then enter the device code shown at https://rmcloud.les12.fr/device
+
+- name: Check if rmapi is already installed
+  ansible.builtin.stat:
+    path: "{{ rmapi_binary }}"
+  register: rmapi_binary_check
+
+- name: Get installed rmapi version
+  ansible.builtin.command:
+    cmd: "{{ rmapi_binary }} version 2>&1 || true"
+  register: rmapi_version_installed
+  changed_when: false
+  failed_when: false
+  when: rmapi_binary_check.stat.exists
+
+- name: Download rmapi binary
+  ansible.builtin.get_url:
+    url: "{{ rmapi_download_url }}"
+    dest: /tmp/rmapi-linux-{{ rmapi_arch }}.tar.gz
+    mode: "0644"
+  when: >-
+    not rmapi_binary_check.stat.exists
+    or (rmapi_version_installed.stdout is defined
+        and rmapi_version not in rmapi_version_installed.stdout)
+
+- name: Extract rmapi binary
+  ansible.builtin.unarchive:
+    src: /tmp/rmapi-linux-{{ rmapi_arch }}.tar.gz
+    dest: "{{ rmapi_install_dir }}"
+    remote_src: true
+    mode: "0755"
+    extra_opts:
+      - --strip-components=0
+  when: >-
+    not rmapi_binary_check.stat.exists
+    or (rmapi_version_installed.stdout is defined
+        and rmapi_version not in rmapi_version_installed.stdout)
+
+- name: Remove downloaded archive
+  ansible.builtin.file:
+    path: /tmp/rmapi-linux-{{ rmapi_arch }}.tar.gz
+    state: absent
+
+- name: Create rmapi config directory
+  ansible.builtin.file:
+    path: "{{ rmapi_config_dir }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ admin_user }}"
+    group: "{{ admin_user }}"
+
+- name: Add RMAPI_HOST env var to admin user's bashrc
+  ansible.builtin.lineinfile:
+    path: "/home/{{ admin_user }}/.bashrc"
+    regexp: "^export RMAPI_HOST="
+    line: "export RMAPI_HOST=https://{{ subdomain_rmfakecloud }}.{{ domain }}"
+    create: true
+    owner: "{{ admin_user }}"
+    group: "{{ admin_user }}"
+    mode: "0644"
+
+- name: Verify rmapi installation
+  ansible.builtin.command:
+    cmd: "{{ rmapi_binary }} version"
+  register: rmapi_verify
+  changed_when: false
+  failed_when: rmapi_verify.rc != 0 or rmapi_verify.stdout == ""
+
+- name: Show rmapi version
+  ansible.builtin.debug:
+    msg: "rmapi installed successfully: {{ rmapi_verify.stdout }}"
+
+- name: Display authentication instructions
+  ansible.builtin.debug:
+    msg:
+      - "rmapi is installed at {{ rmapi_binary }}"
+      - "RMAPI_HOST is set to https://{{ subdomain_rmfakecloud }}.{{ domain }}"
+      - ""
+      - "To authenticate with rmfakecloud, run as {{ admin_user }}:"
+      - "  source ~/.bashrc"
+      - "  rmapi"
+      - ""
+      - "Then visit https://{{ subdomain_rmfakecloud }}.{{ domain }}/device"
+      - "and enter the device code shown by rmapi."
+

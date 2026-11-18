@@ -1,0 +1,50 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # To require manual approval before applying, protect this environment
+    # in GitHub (Settings -> Environments -> production -> Required reviewers).
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible and collections
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+          ansible-galaxy collection install community.general
+
+      - name: Install secrets (vault password + deploy key)
+        env:
+          ANSIBLE_VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
+          PALMA_DEPLOY_KEY: ${{ secrets.PALMA_DEPLOY_KEY }}
+        run: |
+          echo "$ANSIBLE_VAULT_PASSWORD" > vault.pass
+          mkdir -p ~/.ssh
+          echo "$PALMA_DEPLOY_KEY" > ~/.ssh/palma_ci
+          chmod 600 ~/.ssh/palma_ci
+          for i in 1 2 3 4 5; do
+            ssh-keyscan -H 185.196.20.127 >> ~/.ssh/known_hosts 2>/dev/null && break
+            sleep 5
+          done
+
+      - name: Deploy to palma
+        run: |
+          ansible-playbook -i ansible/inventory.ini ansible/site.yml \
+            --vault-password-file vault.pass \
+            -e "vps_ssh_private_key_file=$HOME/.ssh/palma_ci"
